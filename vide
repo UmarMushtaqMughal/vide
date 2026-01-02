@@ -1,0 +1,448 @@
+#!/usr/bin/env python3
+import sys
+import os
+import re
+import subprocess
+import shutil
+import time
+import tempfile
+
+# --- CONFIGURATION & TEMPLATES ---
+
+BOILERPLATE_V = """`timescale 1ns/1ps
+
+module {module_name} (
+    input clk,
+    input rst_n,
+    // Add ports here
+);
+
+    // Logic here
+
+endmodule
+"""
+
+BOILERPLATE_SV = """`timescale 1ns/1ps
+
+module {module_name} (
+    input logic clk,
+    input logic rst_n,
+    // Add ports here (e.g. input logic [7:0] data)
+);
+
+    // Logic here
+
+endmodule
+"""
+
+TB_TEMPLATE = """`timescale 1ns/1ps
+
+module {tb_name};
+
+    // Signals
+    {signal_decls}
+
+    // Instantiate UUT
+    {module_name} uut (
+        {instance_ports}
+    );
+
+    // Clock
+    initial begin
+        clk = 0;
+        forever #5 clk = ~clk;
+    end
+
+    initial begin
+        // Initialize
+        {init_inputs}
+        
+        // Reset
+        if ($value$plusargs("dump=%s", dump_file)) begin
+             $dumpfile(dump_file);
+             $dumpvars(0, {tb_name});
+        end
+        
+        rst_n = 0;
+        #20;
+        rst_n = 1;
+
+        // Stimulus
+        #100;
+        
+        $finish;
+    end
+
+    // GTKWave Setup
+    reg [256*8:1] dump_file;
+
+endmodule
+"""
+
+# --- CUSTOM TMUX CONFIG (THE MAGIC SAUCE) ---
+# This config enables mouse and Alt-key navigation
+TMUX_CONF = """
+# Enable Mouse (Click to focus, drag to resize)
+set -g mouse on
+
+# NAVIGATION: Use Alt + Arrow Keys to switch panes (No Ctrl+b needed!)
+bind -n M-Left select-pane -L
+bind -n M-Right select-pane -R
+bind -n M-Up select-pane -U
+bind -n M-Down select-pane -D
+
+# ZOOM: Alt + z to toggle fullscreen
+bind -n M-z resize-pane -Z
+
+# RESIZE: Alt + Shift + Arrow
+bind -n M-S-Left resize-pane -L 5
+bind -n M-S-Right resize-pane -R 5
+bind -n M-S-Up resize-pane -U 5
+bind -n M-S-Down resize-pane -D 5
+
+# QUIT: Alt + q to kill the IDE
+bind -n M-q kill-session
+
+# Visual Tweaks
+set -g pane-border-style fg=blue
+set -g pane-active-border-style fg=green
+set -g status-style bg=black,fg=white
+"""
+
+# --- UTILITY FUNCTIONS ---
+
+def get_module_name(filename):
+    return os.path.splitext(os.path.basename(filename))[0]
+
+def get_sources(target):
+    if target.endswith(".f"):
+        if not os.path.exists(target):
+            print(f"❌ Error: File list {target} not found.")
+            sys.exit(1)
+        with open(target, 'r') as f:
+            files = []
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith(('#', '//')):
+                    files.append(line)
+        if not files:
+            print("❌ Error: File list is empty.")
+            sys.exit(1)
+        return files, get_module_name(files[0])
+    else:
+        return [target], get_module_name(target)
+
+def parse_ports(verilog_code):
+    module_pattern = re.search(r'module\s+(\w+)\s*\((.*?)\);', verilog_code, re.DOTALL)
+    if not module_pattern:
+        print("Error: Could not find module declaration.")
+        sys.exit(1)
+
+    module_name = module_pattern.group(1)
+    port_content = module_pattern.group(2)
+    port_content = re.sub(r'//.*', '', port_content) 
+    port_content = re.sub(r'/\*.*?\*/', '', port_content, flags=re.DOTALL)
+    
+    for kw in ['input', 'output', 'inout']:
+        port_content = re.sub(r'\b' + kw + r'\b', f'|SPLIT|{kw}', port_content)
+
+    inputs = []
+    outputs = []
+
+    distinct_declarations = port_content.split('|SPLIT|')
+
+    for decl in distinct_declarations:
+        decl = decl.strip()
+        if not decl: continue
+        match = re.match(r'(input|output|inout)\s+(?:logic\s+|reg\s+|wire\s+)?(\[[^\]]+\])?\s*(.*)', decl, re.DOTALL)
+        if match:
+            direction = match.group(1)
+            width = match.group(2) if match.group(2) else ""
+            var_string = match.group(3)
+            vars_list = [v.strip().strip(',;') for v in var_string.split(',')]
+            for var_name in vars_list:
+                if not var_name: continue
+                full_decl = f"{width} {var_name}".strip()
+                if direction == 'input':
+                    inputs.append(full_decl)
+                else:
+                    outputs.append(full_decl)
+
+    return module_name, inputs, outputs
+
+def clean_name(decl):
+    return decl.split()[-1]
+
+# --- CORE COMMANDS ---
+
+def cmd_new(target, flags=[]):
+    is_sv = target.endswith(".sv")
+    if not (target.endswith(".v") or is_sv): target += ".sv"
+    
+    if os.path.exists(target):
+        print(f"Error: {target} already exists.")
+        return
+
+    name = get_module_name(target)
+    content = BOILERPLATE_SV if is_sv else BOILERPLATE_V
+    with open(target, 'w') as f:
+        f.write(content.format(module_name=name))
+    print(f"✅ Created {target}")
+
+def cmd_tb(target, flags=[]):
+    if not os.path.exists(target):
+        print(f"Error: {target} not found.")
+        return
+    
+    is_sv = target.endswith(".sv")
+    with open(target, 'r') as f:
+        content = f.read()
+
+    module_name, inputs, outputs = parse_ports(content)
+    tb_name = module_name + "_tb"
+    tb_file = tb_name + ".sv" if is_sv else module_name + "_tb.v"
+
+    if is_sv:
+        signal_decls = "\n    ".join([f"logic {p};" for p in inputs + outputs])
+    else:
+        regs = "\n    ".join([f"reg {i};" for i in inputs])
+        wires = "\n    ".join([f"wire {o};" for o in outputs])
+        signal_decls = regs + "\n\n    " + wires
+
+    all_ports = inputs + outputs
+    instance_ports = ",\n        ".join([f".{clean_name(p)}({clean_name(p)})" for p in all_ports])
+    init_inputs = "\n        ".join([f"{clean_name(i)} = 0;" for i in inputs if clean_name(i) not in ['clk', 'rst_n']])
+
+    tb_content = TB_TEMPLATE.format(
+        tb_name=tb_name, signal_decls=signal_decls,
+        module_name=module_name, instance_ports=instance_ports, init_inputs=init_inputs
+    )
+    
+    if os.path.exists(tb_file):
+        print(f"⚠️  {tb_file} already exists. Overwrite? (y/n)")
+        if input().lower() != 'y': return
+
+    with open(tb_file, 'w') as f:
+        f.write(tb_content)
+    print(f"✅ Generated testbench: {tb_file}")
+
+def cmd_sim(target, flags=[]):
+    files, base_name = get_sources(target)
+    
+    if not target.endswith(".f"):
+        tb_sv = base_name + "_tb.sv"
+        tb_v = base_name + "_tb.v"
+        if os.path.exists(tb_sv): files.append(tb_sv)
+        elif os.path.exists(tb_v): files.append(tb_v)
+
+    out_file = base_name + ".vvp"
+    vcd_file = base_name + ".vcd"
+    gtkw_file = base_name + ".gtkw"
+    has_sv = any(f.endswith(".sv") for f in files)
+    compiler_flags = ["-g2012"] if has_sv else []
+
+    print(f"🔨 Compiling {len(files)} file(s)...")
+    compile_cmd = ["iverilog"] + compiler_flags + ["-o", out_file] + files
+    
+    if subprocess.call(compile_cmd) != 0:
+        print("❌ Compilation Failed.")
+        return
+
+    print("🚀 Running Simulation...")
+    sim_cmd = ["vvp", out_file, f"+dump={vcd_file}"]
+    if subprocess.call(sim_cmd) != 0:
+        print("❌ Simulation Runtime Error.")
+        return
+
+    if "--watch" not in flags:
+        print("📈 Opening GTKWave...")
+        if os.path.exists(gtkw_file):
+            subprocess.Popen(["gtkwave", gtkw_file], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+        else:
+            subprocess.Popen(["gtkwave", vcd_file], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+
+def cmd_watch(target, flags=[]):
+    files, _ = get_sources(target)
+    print(f"👀 Watching {len(files)} files... (Ctrl+C to stop)")
+    mtimes = {f: 0 for f in files}
+    cmd_sim(target, flags=["--watch"])
+
+    try:
+        while True:
+            changed = False
+            for f in files:
+                if not os.path.exists(f): continue
+                curr = os.path.getmtime(f)
+                if curr > mtimes[f]:
+                    mtimes[f] = curr
+                    changed = True
+            
+            if changed:
+                os.system('clear')
+                print(f"🔄 Change detected. Re-simulating...")
+                cmd_sim(target, flags=["--watch"])
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        print("\n🛑 Watch mode stopped.")
+
+def cmd_synth(target, flags=[]):
+    files, top_module = get_sources(target)
+    has_sv = any(f.endswith(".sv") for f in files)
+    read_cmd = "read_verilog -sv" if has_sv else "read_verilog"
+    print(f"🔬 Synthesizing {top_module}...")
+    load_script = "; ".join([f"{read_cmd} {f}" for f in files])
+    yosys_script = f"{load_script}; synth -top {top_module}; stat"
+    cmd = ["yosys", "-q", "-p", yosys_script]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print("❌ SYNTHESIS FAILED")
+        for line in result.stderr.split('\n'):
+            if "ERROR" in line: print(f"   {line}")
+    else:
+        print("✅ SYNTHESIS SUCCESSFUL")
+        print("-" * 30)
+        lines = result.stdout.split('\n')
+        for line in lines:
+            if any(x in line for x in ["Number of wires:", "Number of cells:", "Chip area", "printing statistics"]):
+                print(f"   {line.strip()}")
+        print("-" * 30)
+
+def cmd_show(target, flags=[]):
+    if not shutil.which("xdot"):
+        print("❌ Error: 'xdot' missing.")
+        return
+    
+    # Handle File Lists vs Single Files
+    if target.endswith(".f"):
+        files, top_module = get_sources(target)
+    else:
+        files, top_module = get_sources(target)
+        
+    has_sv = any(f.endswith(".sv") for f in files)
+    read_cmd = "read_verilog -sv" if has_sv else "read_verilog"
+    
+    dot_file = f"{top_module}.dot"
+    
+    # --- DECISION LOGIC ---
+    if "--hier" in flags:
+        print(f"🧱 Generating Hierarchy View (Boxes)...")
+        # hierarchy -check: Finds the top module
+        # proc: Processes always blocks
+        # No 'opt' or 'synth' ensures boxes stay boxes!
+        algo = f"hierarchy -check -top {top_module}; proc"
+    elif "--prep" in flags:
+        print(f"🎨 Generating Abstract RTL Schematic...")
+        algo = f"prep -top {top_module}"
+    else:
+        print(f"⚡ Generating Gate-Level Schematic (Flattened)...")
+        algo = f"synth -top {top_module}"
+
+    load_script = "; ".join([f"{read_cmd} {f}" for f in files])
+    
+    # Show command:
+    # -stretch: Widen the layout
+    # -colors 2: Color by depth
+    # -enum: Keep state names readable
+    yosys_script = f"{load_script}; {algo}; show -prefix {top_module} -format dot -colors 2 -width -stretch -enum"
+    
+    if subprocess.call(["yosys", "-q", "-p", yosys_script]) != 0:
+        print("❌ Failed to generate schematic.")
+        return
+
+    subprocess.Popen(["xdot", dot_file], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+
+def cmd_ide(target, flags=[]):
+    """
+    Tmux Orchestrator with Beginner-Friendly Config
+    """
+    if not shutil.which("tmux"):
+        print("❌ Error: 'tmux' is not installed.")
+        return
+
+    session_name = "vide_studio"
+    
+    # 1. Create a Temporary Config File for this session
+    # We write the TMUX_CONF string to a temp file
+    fd, config_path = tempfile.mkstemp()
+    with os.fdopen(fd, 'w') as tmp:
+        tmp.write(TMUX_CONF)
+
+    # 2. Check if session exists
+    check = subprocess.run(["tmux", "has-session", "-t", session_name], stderr=subprocess.DEVNULL)
+    if check.returncode == 0:
+        print(f"⚠️  Session '{session_name}' exists. Attaching...")
+        # Try to source the config even if attached, to ensure shortcuts work
+        os.system(f"tmux source-file {config_path}")
+        os.system(f"tmux attach -t {session_name}")
+        return
+
+    files, _ = get_sources(target)
+    # Join files so nvim opens them all in tabs (-p)
+    file_args = " ".join(files)
+
+    print("🖥️  Initializing IDE Environment...")
+    print("   • Mouse: ENABLED (Click panes to switch)")
+    print("   • Nav:   Alt + Arrow Keys")
+    print("   • Zoom:  Alt + z")
+    print("   • Quit:  Alt + q")
+
+    # 3. Start Tmux with the custom config (-f)
+    # We open Neovim with -p to create Tabs for multiple files
+    subprocess.run(["tmux", "-f", config_path, "new-session", "-d", "-s", session_name, "-n", "code", f"nvim -p {file_args}"])
+
+    # 4. Setup Layout
+    subprocess.run(["tmux", "split-window", "-t", f"{session_name}:0", "-h", "-b", "-l", "30%"])
+    watch_cmd = f"vide watch {target}"
+    subprocess.run(["tmux", "send-keys", "-t", f"{session_name}:0.0", watch_cmd, "C-m"])
+    subprocess.run(["tmux", "split-window", "-t", f"{session_name}:0.1", "-v", "-l", "20%"])
+    
+    # Print a welcome message in the bottom terminal
+    welcome_msg = "echo 'Welcome to Vide! Use Alt+Arrows to move. Alt+z to zoom code. vide synth to check logic.'"
+    subprocess.run(["tmux", "send-keys", "-t", f"{session_name}:0.2", welcome_msg, "C-m"])
+
+    subprocess.run(["tmux", "select-pane", "-t", f"{session_name}:0.1"])
+
+    # 5. Attach
+    os.system(f"tmux attach -t {session_name}")
+    
+    # Cleanup config after exit
+    # os.remove(config_path) # Optional: usually keep it until reboot in /tmp is fine
+
+# --- DISPATCHER ---
+
+COMMANDS = {
+    "new": cmd_new,
+    "tb": cmd_tb,
+    "sim": cmd_sim,
+    "watch": cmd_watch,
+    "synth": cmd_synth,
+    "show": cmd_show,
+    "ide": cmd_ide
+}
+
+def print_help():
+    print("Usage: vide <command> <filename/filelist> [flags]")
+    print("\nCommands:")
+    print("  new   <file>          - Create module")
+    print("  tb    <file>          - Generate testbench")
+    print("  sim   <file>          - Run simulation")
+    print("  watch <file>          - Auto-run sim on save")
+    print("  synth <file>          - Check synthesis stats")
+    print("  show  <file> [--prep] - View schematic")
+    print("  ide   <file>          - Open IDE (Alt+Arrows to Nav)")
+    print("")
+
+if __name__ == "__main__":
+    if len(sys.argv) < 3:
+        print_help()
+        sys.exit(1)
+
+    action = sys.argv[1]
+    target = sys.argv[2]
+    flags = sys.argv[3:] 
+
+    if action in COMMANDS:
+        COMMANDS[action](target, flags)
+    else:
+        print(f"Unknown command: {action}")
+        print_help()
