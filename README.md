@@ -18,7 +18,7 @@ A lightweight, command-line Verilog/SystemVerilog development environment with a
 
 The following tools must be installed on your system:
 
-- **Python 3** - Core scripting language
+- **Python 3.6 or higher** - Core scripting language
 - **Icarus Verilog (iverilog)** - For compilation and simulation
 - **GTKWave** - Waveform viewer
 - **Yosys** - Synthesis and schematic generation
