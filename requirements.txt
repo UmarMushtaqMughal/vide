@@ -1,0 +1,15 @@
+# Vide - Verilog IDE Requirements
+#
+# This project uses only Python standard library modules.
+# No additional Python packages need to be installed via pip.
+#
+# However, the following system-level tools are required:
+# - Python 3.6 or higher
+# - iverilog (Icarus Verilog)
+# - gtkwave
+# - yosys
+# - xdot
+# - tmux
+# - neovim
+#
+# See README.md for installation instructions for your operating system.
