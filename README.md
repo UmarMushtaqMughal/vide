@@ -1,283 +1,178 @@
-# Vide - Verilog IDE
+# UniEvent — University Event Management System
 
-A lightweight, command-line Verilog/SystemVerilog development environment with auto-simulation, synthesis checking, and an integrated tmux-based IDE.
+A Node.js/Express web application that fetches live events from the **Ticketmaster Discovery API** and displays them as university events. Built for CE 308/408 Cloud Computing at GIKI and deployed on AWS.
+
+---
+
+## Architecture Overview
+
+```
+Internet ──► ALB (Application Load Balancer)
+                │
+                ▼
+         EC2 Instance (Amazon Linux 2023)
+         ┌──────────────────────────────┐
+         │  Node.js 18 + Express        │
+         │  EJS templating              │
+         │  Ticketmaster API client     │
+         └──────────────────────────────┘
+                │
+                ▼
+         AWS Services
+         ├── VPC  (network isolation)
+         ├── EC2  (compute)
+         ├── S3   (media/static assets)
+         ├── ALB  (load balancing + health checks)
+         └── IAM  (role-based access control)
+```
+
+---
 
 ## Features
 
-- 🚀 **Quick Module Creation** - Generate Verilog/SystemVerilog boilerplate
-- 🧪 **Auto Testbench Generation** - Parse ports and create testbenches automatically
-- 🔄 **Watch Mode** - Auto-recompile and simulate on file changes
-- 📊 **GTKWave Integration** - Launch waveform viewer automatically
-- 🔬 **Synthesis Checking** - Verify logic with Yosys
-- 📈 **Schematic Viewer** - Visualize your design hierarchy
-- 🖥️ **Integrated IDE** - Tmux-based environment with mouse support and easy navigation
+- 🎫 **Live Events** — Fetches 20 events from Ticketmaster every 30 minutes
+- 🖼️ **Rich Cards** — Best-quality 16:9 images, category badges, price ranges
+- ⚡ **In-Memory Cache** — Fast response times without hitting the API on every request
+- 🏥 **Health Endpoint** — `/health` route for ALB health checks
+- 🔌 **JSON API** — `/api/events` for programmatic access
+- ☁️ **AWS-Ready** — EC2 bootstrap script (`user-data.sh`) included
 
-## Requirements
+---
 
-### System Dependencies
+## Quick Start (Local)
 
-The following tools must be installed on your system:
+### Prerequisites
 
-- **Python 3.6 or higher** - Core scripting language
-- **Icarus Verilog (iverilog)** - For compilation and simulation
-- **GTKWave** - Waveform viewer
-- **Yosys** - Synthesis and schematic generation
-- **xdot** - DOT file viewer for schematics
-- **tmux** - Terminal multiplexer for IDE mode
-- **nvim/neovim** - Text editor for IDE mode
+- Node.js 18 or higher
+- A free [Ticketmaster Developer API key](https://developer.ticketmaster.com/)
 
-### Python Dependencies
-
-Vide uses only Python standard library modules:
-- `sys`
-- `os`
-- `re`
-- `subprocess`
-- `shutil`
-- `time`
-- `tempfile`
-
-No additional Python packages are required.
-
-## Installation
-
-### Ubuntu/Debian
+### Setup
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y python3 iverilog gtkwave yosys xdot tmux neovim
-```
-
-### Fedora/RHEL
-
-```bash
-sudo dnf install -y python3 iverilog gtkwave yosys xdot tmux neovim
-```
-
-### Arch Linux
-
-```bash
-sudo pacman -S python iverilog gtkwave yosys xdot tmux neovim
-```
-
-### macOS
-
-```bash
-brew install python icarus-verilog gtkwave yosys tmux neovim
-brew install graphviz  # includes xdot
-```
-
-### Setting up Vide
-
-1. Clone the repository:
-```bash
+# 1. Clone the repository
 git clone https://github.com/UmarMushtaqMughal/vide.git
 cd vide
+
+# 2. Install dependencies
+npm install
+
+# 3. Configure environment variables
+cp .env.example .env
+# Edit .env and set your TICKETMASTER_API_KEY
+
+# 4. Start the server
+npm start
+# Open http://localhost:3000
 ```
 
-2. Make the script executable:
-```bash
-chmod +x vide
-```
+---
 
-3. (Optional) Add to PATH for easy access:
-```bash
-sudo ln -s $(pwd)/vide /usr/local/bin/vide
-```
+## AWS Deployment
 
-## Usage
+### EC2 Launch (User Data)
 
-### Basic Commands
+Use `user-data.sh` as the **User Data** script when launching an EC2 instance. It will:
 
-```bash
-vide <command> <filename/filelist> [flags]
-```
+1. Install Node.js 18 on Amazon Linux 2023
+2. Create the app directory at `/home/ec2-user/unievent`
+3. Install dependencies
+4. Start the server on port 3000
 
-### Command Reference
+### ALB Health Check
 
-#### `new` - Create a New Module
-
-Creates a new Verilog or SystemVerilog file with boilerplate code.
-
-```bash
-vide new counter.v          # Creates Verilog module
-vide new counter.sv         # Creates SystemVerilog module
-vide new alu                # Creates alu.sv by default
-```
-
-#### `tb` - Generate Testbench
-
-Automatically parses module ports and generates a testbench.
-
-```bash
-vide tb counter.v           # Creates counter_tb.v
-vide tb counter.sv          # Creates counter_tb.sv
-```
-
-#### `sim` - Run Simulation
-
-Compiles and runs simulation, then opens GTKWave.
-
-```bash
-vide sim counter.v          # Simulate single file
-vide sim files.f            # Simulate multiple files from list
-```
-
-#### `watch` - Auto-Simulation on Save
-
-Monitors files and re-runs simulation automatically when changes are detected.
-
-```bash
-vide watch counter.v        # Watch mode for single file
-vide watch files.f          # Watch mode for file list
-```
-
-Press `Ctrl+C` to stop watching.
-
-#### `synth` - Synthesis Check
-
-Runs Yosys synthesis to check logic and show statistics.
-
-```bash
-vide synth counter.v        # Check synthesis
-vide synth files.f          # Check synthesis for multiple files
-```
-
-#### `show` - View Schematic
-
-Generates and displays circuit schematic using Yosys and xdot.
-
-```bash
-vide show counter.v             # Gate-level schematic (flattened)
-vide show counter.v --prep      # Abstract RTL schematic
-vide show counter.v --hier      # Hierarchy view (boxes)
-```
-
-**Flags:**
-- `--prep`: Abstract RTL representation
-- `--hier`: Hierarchical box view
-
-#### `ide` - Integrated Development Environment
-
-Launches a tmux-based IDE with code editor, auto-simulation, and terminal.
-
-```bash
-vide ide counter.v          # Open IDE for single file
-vide ide files.f            # Open IDE for multiple files
-```
-
-**IDE Shortcuts:**
-- `Alt + Arrow Keys` - Navigate between panes
-- `Alt + z` - Toggle fullscreen on current pane
-- `Alt + Shift + Arrow` - Resize panes
-- `Alt + q` - Quit IDE
-- Mouse enabled for clicking and resizing
-
-The IDE layout includes:
-- **Left pane**: Watch mode (auto-simulation)
-- **Right top pane**: Neovim editor with files in tabs
-- **Right bottom pane**: Command terminal
-
-## File Lists (.f files)
-
-For multi-file projects, create a `.f` file listing all source files:
+Configure your Application Load Balancer health check to hit:
 
 ```
-# files.f
-counter.v
-decoder.v
-top.sv
+GET /health
 ```
 
-Then use it with any command:
-```bash
-vide sim files.f
-vide ide files.f
+Expected response: `HTTP 200` with JSON body `{"status":"ok","uptime":<seconds>}`
+
+---
+
+## API Reference
+
+### `GET /`
+Renders the main event listing page (HTML).
+
+### `GET /health`
+Returns server health status (used by ALB).
+
+```json
+{ "status": "ok", "uptime": 123.45 }
 ```
 
-## Examples
+### `GET /api/events`
+Returns all cached events as JSON.
 
-### Quick Start Example
-
-```bash
-# Create a new module
-vide new counter.sv
-
-# Edit the file (add your logic)
-# ...
-
-# Generate testbench
-vide tb counter.sv
-
-# Run simulation
-vide sim counter.sv
-
-# Check synthesis
-vide synth counter.sv
-
-# View schematic
-vide show counter.sv
-
-# Open in IDE for development
-vide ide counter.sv
+```json
+{
+  "total": 20,
+  "lastFetchTime": "2024-01-01T00:00:00.000Z",
+  "events": [
+    {
+      "id": "...",
+      "title": "Event Name",
+      "date": "2024-06-15",
+      "time": "19:00:00",
+      "venue": "Venue Name",
+      "description": "...",
+      "imageUrl": "https://...",
+      "category": "Music",
+      "priceRange": "$20 - $80",
+      "url": "https://www.ticketmaster.com/..."
+    }
+  ]
+}
 ```
 
-### Multi-File Project
+---
 
-```bash
-# Create file list
-echo "alu.sv" > design.f
-echo "control.sv" >> design.f
-echo "top.sv" >> design.f
+## Environment Variables
 
-# Open IDE with all files
-vide ide design.f
+| Variable | Description | Default |
+|---|---|---|
+| `TICKETMASTER_API_KEY` | Ticketmaster Discovery API key | *(required)* |
+| `PORT` | Port the server listens on | `3000` |
+| `AWS_REGION` | AWS region for SDK calls | `us-east-1` |
+| `S3_BUCKET_NAME` | S3 bucket for media assets | `unievent-media-bucket` |
 
-# Synthesis check
-vide synth design.f
-```
+Copy `.env.example` to `.env` and fill in the values.
 
-## Project Structure
+---
+
+## Folder Structure
 
 ```
 vide/
-├── vide          # Main executable script
-└── README.md     # This file
+├── server.js               # Main application entry point
+├── package.json            # Node.js dependencies & scripts
+├── .env.example            # Environment variable template
+├── .gitignore              # Git ignore rules
+├── user-data.sh            # EC2 bootstrap script
+├── services/
+│   └── eventFetcher.js     # Ticketmaster API integration
+├── views/
+│   └── index.ejs           # EJS frontend template
+└── README.md               # This file
 ```
 
-## Troubleshooting
+---
 
-### Command Not Found
+## Course Information
 
-Make sure all required tools are installed:
-```bash
-which iverilog gtkwave yosys xdot tmux nvim
-```
+| Field | Details |
+|---|---|
+| Course | CE 308/408 Cloud Computing |
+| Institution | GIKI (Ghulam Ishaq Khan Institute) |
+| Project | UniEvent — University Event Management System |
+| Cloud Provider | Amazon Web Services (AWS) |
 
-### Compilation Errors
-
-- Ensure your Verilog/SystemVerilog syntax is correct
-- For SystemVerilog, make sure files have `.sv` extension
-- Check that all files in `.f` lists exist and are readable
-
-### GTKWave Not Opening
-
-- Verify GTKWave is installed: `which gtkwave`
-- Check that VCD file was generated in the working directory
-
-### IDE Issues
-
-- Ensure tmux and neovim are installed
-- If panes don't respond to Alt+Arrow, your terminal may not support it
-- Try using the default tmux prefix (`Ctrl+b`) instead
+---
 
 ## License
 
 This project is open source. Please check the repository for license details.
-
-## Contributing
-
-Contributions are welcome! Please submit issues and pull requests on GitHub.
 
 ## Author
 
@@ -286,3 +181,4 @@ UmarMushtaqMughal
 ## Links
 
 - GitHub: https://github.com/UmarMushtaqMughal/vide
+- Ticketmaster Developer: https://developer.ticketmaster.com/

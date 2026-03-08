@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>UniEvent — GIKI University Event Management System</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #f0f2f5;
+      color: #333;
+    }
+
+    /* ── Header ── */
+    header {
+      background: linear-gradient(135deg, #1a237e 0%, #283593 60%, #3949ab 100%);
+      color: #fff;
+      padding: 24px 40px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+    header h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      letter-spacing: 1px;
+    }
+    header p {
+      margin-top: 6px;
+      font-size: 0.95rem;
+      opacity: 0.85;
+    }
+
+    /* ── Stats Bar ── */
+    .stats-bar {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      background: #fff;
+      padding: 14px 40px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+      flex-wrap: wrap;
+    }
+    .stats-bar .stat {
+      font-size: 0.9rem;
+      color: #555;
+    }
+    .stats-bar .stat strong {
+      color: #1a237e;
+    }
+    .live-badge {
+      display: inline-block;
+      background: #e53935;
+      color: #fff;
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 12px;
+      letter-spacing: 1px;
+      animation: pulse 1.8s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.6; }
+    }
+
+    /* ── Main Grid ── */
+    main {
+      max-width: 1400px;
+      margin: 32px auto;
+      padding: 0 24px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 28px;
+    }
+
+    /* ── Event Card ── */
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      transition: transform 0.25s ease, box-shadow 0.25s ease;
+      display: flex;
+      flex-direction: column;
+    }
+    .card:hover {
+      transform: translateY(-6px);
+      box-shadow: 0 10px 28px rgba(0,0,0,0.18);
+    }
+    .card-img {
+      width: 100%;
+      height: 190px;
+      object-fit: cover;
+      background: #e8eaf6;
+    }
+    .card-body {
+      padding: 18px 20px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .category-badge {
+      display: inline-block;
+      background: #e8eaf6;
+      color: #3949ab;
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      align-self: flex-start;
+    }
+    .card-title {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: #1a237e;
+      line-height: 1.3;
+    }
+    .card-meta {
+      font-size: 0.82rem;
+      color: #666;
+    }
+    .card-meta span {
+      margin-right: 12px;
+    }
+    .card-desc {
+      font-size: 0.83rem;
+      color: #555;
+      line-height: 1.5;
+      flex: 1;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .card-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid #e8eaf6;
+    }
+    .price-tag {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: #2e7d32;
+    }
+    .btn-details {
+      background: #3949ab;
+      color: #fff;
+      border: none;
+      padding: 7px 18px;
+      border-radius: 8px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: background 0.2s;
+    }
+    .btn-details:hover {
+      background: #1a237e;
+    }
+
+    /* ── No Events ── */
+    .no-events {
+      text-align: center;
+      padding: 80px 24px;
+      color: #888;
+      font-size: 1.1rem;
+    }
+
+    /* ── Footer ── */
+    footer {
+      text-align: center;
+      padding: 24px;
+      font-size: 0.82rem;
+      color: #888;
+      border-top: 1px solid #ddd;
+      margin-top: 40px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <header>
+    <h1>🎓 UniEvent</h1>
+    <p>GIKI University Event Management System &nbsp;|&nbsp; CE 308/408 Cloud Computing &nbsp;|&nbsp; Powered by AWS</p>
+  </header>
+
+  <!-- Stats Bar -->
+  <div class="stats-bar">
+    <div class="stat">Total Events: <strong><%= totalEvents %></strong></div>
+    <div class="stat">Last Updated: <strong><%= lastFetchTime %></strong></div>
+    <span class="live-badge">LIVE</span>
+  </div>
+
+  <!-- Event Grid -->
+  <main>
+    <% if (events.length === 0) { %>
+      <div class="no-events">
+        <p>🔍 No events found. Make sure your Ticketmaster API key is set correctly.</p>
+      </div>
+    <% } else { %>
+      <div class="grid">
+        <% events.forEach(function(event) { %>
+          <div class="card">
+            <% if (event.imageUrl) { %>
+              <img class="card-img" src="<%= event.imageUrl %>" alt="<%= event.title %>" loading="lazy" />
+            <% } else { %>
+              <div class="card-img" style="display:flex;align-items:center;justify-content:center;font-size:3rem;">🎉</div>
+            <% } %>
+            <div class="card-body">
+              <span class="category-badge"><%= event.category %></span>
+              <div class="card-title"><%= event.title %></div>
+              <div class="card-meta">
+                <span>📅 <%= event.date %></span>
+                <span>🕐 <%= event.time %></span>
+              </div>
+              <div class="card-meta">
+                <span>📍 <%= event.venue %></span>
+              </div>
+              <div class="card-desc"><%= event.description %></div>
+              <div class="card-footer">
+                <span class="price-tag"><%= event.priceRange %></span>
+                <a class="btn-details" href="<%= event.url %>" target="_blank" rel="noopener noreferrer">View Details</a>
+              </div>
+            </div>
+          </div>
+        <% }); %>
+      </div>
+    <% } %>
+  </main>
+
+  <!-- Footer -->
+  <footer>
+    UniEvent &mdash; GIKI University Event Management System &nbsp;|&nbsp; CE 308/408 Cloud Computing &nbsp;|&nbsp; Powered by AWS
+  </footer>
+
+</body>
+</html>
