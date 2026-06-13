@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/UmarMushtaqMughal/vide/internal/updater"
 	"github.com/spf13/cobra"
 )
 
@@ -13,7 +14,7 @@ var rootCmd = &cobra.Command{
 	Long: `Vide is a lightweight, command-line Verilog/SystemVerilog development
 environment with auto-simulation, synthesis checking, an integrated
 waveform viewer, and a full terminal UI built with Bubble Tea.`,
-	Version: "2.0.0",
+	Version: updater.Version,
 	Args: cobra.ArbitraryArgs,
 	Run: func(cmd *cobra.Command, args []string) {
 		if len(args) == 1 {

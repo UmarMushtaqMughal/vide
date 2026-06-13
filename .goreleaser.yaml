@@ -13,6 +13,8 @@ builds:
       - arm64
     main: ./main.go
     binary: vide
+    ldflags:
+      - -s -w -X github.com/UmarMushtaqMughal/vide/internal/updater.Version={{.Version}}
 archives:
   - format: tar.gz
     name_template: '{{ .ProjectName }}_{{ title .Os }}_{{ if eq .Arch "amd64" }}x86_64{{ else if eq .Arch "386" }}i386{{ else }}{{ .Arch }}{{ end }}'
