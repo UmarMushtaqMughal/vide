@@ -52,7 +52,7 @@ const TBTemplate = "`timescale 1ns/1ps\n" +
 	"{{end}}\n" +
 	"    initial begin\n" +
 	"        $dumpfile(\"{{.ModuleName}}.vcd\");\n" +
-	"        $dumpvars(0, {{.TBName}});\n" +
+	"        $dumpvars(1, {{.TBName}});\n" +
 	"{{if .InitInputs}}\n" +
 	"        // Initialize\n" +
 	"        {{.InitInputs}}\n" +
