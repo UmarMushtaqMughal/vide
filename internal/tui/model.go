@@ -468,6 +468,11 @@ func (m *Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			pModel, pCmd = m.bootstrapProg.Update(msg)
 			m.bootstrapProg = pModel.(progress.Model)
 			return m, pCmd
+		case tea.WindowSizeMsg:
+			m.width = msg.Width
+			m.height = msg.Height
+			m.editor.SetSize(msg.Width-2, msg.Height-4)
+			return m, nil
 		}
 		return m, nil
 	}
