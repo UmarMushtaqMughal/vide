@@ -40,3 +40,20 @@ release:
   github:
     owner: UmarMushtaqMughal
     name: vide
+
+aurs:
+  - name: vide-bin
+    homepage: "https://github.com/UmarMushtaqMughal/vide"
+    description: "A lightweight, terminal-based Verilog/SystemVerilog IDE."
+    maintainers:
+      - "UmarMushtaqMughal"
+    license: "MIT"
+    private_key: '{{ .Env.AUR_KEY }}'
+    git_url: 'ssh://aur@aur.archlinux.org/vide-bin.git'
+    provides:
+      - vide
+    conflicts:
+      - vide
+    package: |-
+      # bin
+      install -Dm755 "./vide" "${pkgdir}/usr/bin/vide"
