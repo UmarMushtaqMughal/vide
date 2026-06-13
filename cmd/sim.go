@@ -25,7 +25,7 @@ func init() {
 
 // RunSimulation is the core simulation logic, exported for use by watch and IDE.
 func RunSimulation(target string, silent bool) error {
-	if err := tools.CheckTools("iverilog", "vvp"); err != nil {
+	if err := tools.EnsureToolchain(); err != nil {
 		return err
 	}
 
@@ -73,7 +73,7 @@ func RunSimulation(target string, silent bool) error {
 	if !silent {
 		fmt.Printf("🔨 Compiling %d file(s)...\n", len(files))
 	}
-	compileCmd := exec.Command("iverilog", args...)
+	compileCmd := exec.Command(tools.GetBinPath("iverilog"), args...)
 	compileCmd.Stdout = os.Stdout
 	compileCmd.Stderr = os.Stderr
 	if err := compileCmd.Run(); err != nil {
@@ -83,7 +83,7 @@ func RunSimulation(target string, silent bool) error {
 	if !silent {
 		fmt.Println("🚀 Running Simulation...")
 	}
-	simCmd := exec.Command("vvp", outFile)
+	simCmd := exec.Command(tools.GetBinPath("vvp"), outFile)
 	simCmd.Stdout = os.Stdout
 	simCmd.Stderr = os.Stderr
 	if err := simCmd.Run(); err != nil {

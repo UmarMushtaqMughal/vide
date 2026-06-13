@@ -24,7 +24,7 @@ func init() {
 }
 
 func runSynth(cmd *cobra.Command, args []string) {
-	if err := tools.CheckTool("yosys"); err != nil {
+	if err := tools.EnsureToolchain(); err != nil {
 		fmt.Fprintf(os.Stderr, "❌ %v\n", err)
 		os.Exit(1)
 	}
@@ -58,7 +58,7 @@ func runSynth(cmd *cobra.Command, args []string) {
 	loadScript := strings.Join(loadParts, "; ")
 	yosysScript := fmt.Sprintf("%s; synth -top %s; stat", loadScript, topModule)
 
-	yosysCmd := exec.Command("yosys", "-p", yosysScript)
+	yosysCmd := exec.Command(tools.GetBinPath("yosys"), "-p", yosysScript)
 	output, err := yosysCmd.CombinedOutput()
 	if err != nil {
 		fmt.Println("❌ SYNTHESIS FAILED")

@@ -52,13 +52,23 @@ func GetToolchainDir() string {
 	return filepath.Join(configDir, "vide", "oss-cad-suite")
 }
 
-// GetBinPath returns the absolute path to the local executable.
+// GetBinPath returns the absolute path to the local executable, or system PATH if found.
 func GetBinPath(tool string) string {
 	ext := ""
 	if runtime.GOOS == "windows" {
 		ext = ".exe"
 	}
-	return filepath.Join(GetToolchainDir(), "bin", tool+ext)
+	
+	localPath := filepath.Join(GetToolchainDir(), "bin", tool+ext)
+	if _, err := os.Stat(localPath); err == nil {
+		return localPath
+	}
+	
+	if sysPath, err := exec.LookPath(tool + ext); err == nil {
+		return sysPath
+	}
+	
+	return localPath
 }
 
 // IsToolchainPresent checks if iverilog, vvp, and yosys exist locally.
@@ -285,5 +295,37 @@ func extractTarGz(archive, target string) error {
 			out.Close()
 		}
 	}
+	return nil
+}
+
+// EnsureToolchain checks if the required tools exist. If they don't, it downloads
+// and extracts the OSS CAD Suite with a terminal progress bar.
+func EnsureToolchain() error {
+	if IsToolchainPresent() {
+		return nil
+	}
+
+	fmt.Println("📦 Toolchain not found. Downloading OSS CAD Suite...")
+	
+	ch := make(chan ProgressMsg)
+	go DownloadAndExtract(ch)
+
+	var lastPct int = -1
+	for msg := range ch {
+		if msg.Err != nil {
+			fmt.Println()
+			return msg.Err
+		}
+		pct := int(msg.Percent * 100)
+		if pct != lastPct {
+			lastPct = pct
+			barWidth := 40
+			filled := pct * barWidth / 100
+			bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
+			// \x1b[K clears to the end of the line
+			fmt.Printf("\r   ⬇  [%s] %3d%% | %s\x1b[K", bar, pct, msg.Status)
+		}
+	}
+	fmt.Println("\n✅ Toolchain installed successfully.")
 	return nil
 }
