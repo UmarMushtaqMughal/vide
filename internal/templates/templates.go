@@ -64,8 +64,11 @@ const TBTemplate = "`timescale 1ns/1ps\n" +
 	"        {{.ResetName}} = {{if .ResetActiveLow}}1{{else}}0{{end}};\n" +
 	"{{end}}\n" +
 	"        // Stimulus\n" +
+	"{{if .StimulusLines}}" +
+	"        {{.StimulusLines}}\n" +
+	"{{else}}" +
 	"        #10000;\n" +
-	"\n" +
+	"{{end}}\n" +
 	"        $finish;\n" +
 	"    end\n" +
 	"\n" +
@@ -83,6 +86,7 @@ type TBTemplateData struct {
 	HasReset       bool   // True if the module has a reset signal.
 	ResetName      string // The name of the reset signal.
 	ResetActiveLow bool   // True if the reset is active low (e.g. rst_n).
+	StimulusLines  string // Multi-bit signal stimulus (assignments + delays).
 }
 
 // tbTmpl is the parsed testbench template, compiled once at package init.

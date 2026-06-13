@@ -3,11 +3,58 @@ package tools
 import (
 	"fmt"
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/UmarMushtaqMughal/vide/internal/parser"
 	"github.com/UmarMushtaqMughal/vide/internal/templates"
 )
+
+// widthSpecRe extracts the MSB and LSB from a [MSB:LSB] width specifier.
+var widthSpecRe = regexp.MustCompile(`\[(\d+)\s*:\s*(\d+)\]`)
+
+// parseBitWidth returns the number of bits encoded in a width string like "[7:0]".
+// Returns 1 if the string is empty or unparseable (i.e. single-bit signal).
+func parseBitWidth(width string) int {
+	m := widthSpecRe.FindStringSubmatch(width)
+	if m == nil {
+		return 1
+	}
+	msb, err1 := strconv.Atoi(m[1])
+	lsb, err2 := strconv.Atoi(m[2])
+	if err1 != nil || err2 != nil {
+		return 1
+	}
+	return msb - lsb + 1
+}
+
+// hexDigits returns the number of hex nibbles needed to represent n bits.
+func hexDigits(n int) int {
+	if n <= 0 {
+		return 1
+	}
+	return (n + 3) / 4
+}
+
+// stimulusForInput returns 3 representative Verilog literal assignments for a
+// multi-bit signal, choosing patterns that exercise typical corner-cases:
+//
+//	1.  0x55…5  (0101 alternating)
+//	2.  0xAA…A  (1010 alternating)
+//	3.  0xFF…F  (all ones)
+func stimulusForInput(name string, bits int) []string {
+	nibbles := hexDigits(bits)
+	val55 := strings.Repeat("5", nibbles)
+	valAA := strings.Repeat("A", nibbles)
+	valFF := strings.Repeat("F", nibbles)
+	pad := func(v string) string { return fmt.Sprintf("%d'h%s", bits, v) }
+	return []string{
+		fmt.Sprintf("%s = %s;", name, pad(val55)),
+		fmt.Sprintf("%s = %s;", name, pad(valAA)),
+		fmt.Sprintf("%s = %s;", name, pad(valFF)),
+	}
+}
 
 // GenerateTB creates a testbench for the given target file and returns the generated filename.
 func GenerateTB(target string) (string, error) {
@@ -104,6 +151,35 @@ func GenerateTB(target string) (string, error) {
 	}
 	initInputs := strings.Join(inits, "\n        ")
 
+	// Build multi-bit stimulus: drive each non-clk/non-rst multi-bit input
+	// through 3 representative values with clock-period delays between each.
+	var stimLines []string
+	for _, p := range inputs {
+		if p.Name == clkName || p.Name == rstName {
+			continue
+		}
+		bits := parseBitWidth(p.Width)
+		if bits <= 1 {
+			continue // single-bit signals are already covered by init
+		}
+		for i, stmt := range stimulusForInput(p.Name, bits) {
+			stimLines = append(stimLines, stmt)
+			if i < 2 { // add delay between assignments, not after the last one
+				stimLines = append(stimLines, "#10;")
+			}
+		}
+		stimLines = append(stimLines, "") // blank line between signals
+	}
+	// Trim trailing blank line.
+	for len(stimLines) > 0 && stimLines[len(stimLines)-1] == "" {
+		stimLines = stimLines[:len(stimLines)-1]
+	}
+	// End with a delay so the last output can settle before $finish.
+	if len(stimLines) > 0 {
+		stimLines = append(stimLines, "#10;")
+	}
+	stimulusLines := strings.Join(stimLines, "\n        ")
+
 	data := templates.TBTemplateData{
 		TBName:         tbName,
 		ModuleName:     moduleName,
@@ -115,6 +191,7 @@ func GenerateTB(target string) (string, error) {
 		HasReset:       hasReset,
 		ResetName:      rstName,
 		ResetActiveLow: rstActiveLow,
+		StimulusLines:  stimulusLines,
 	}
 
 	result, err := templates.RenderTB(data)
