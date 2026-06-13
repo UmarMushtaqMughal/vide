@@ -1,0 +1,42 @@
+# Go build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go test binary
+*.test
+
+# Go coverage
+*.out
+
+# Go workspace
+go.work
+go.work.sum
+
+# Verilog build artifacts
+*.vvp
+*.vcd
+*.gtkw
+*.dot
+
+# IDE / OS files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Old Python artifacts
+__pycache__/
+*.pyc
+
+# Vide IDE Workspace
+.vide_workspace.json
+vide_lint_*.sv
+vide_lint_*.v
+vide_test
+vide
+vide_go
+videe
+dist/
