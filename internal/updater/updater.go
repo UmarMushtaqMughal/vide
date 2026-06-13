@@ -22,16 +22,18 @@ import (
 var Version = "dev"
 
 const (
-	repoOwner = "UmarMushtaqMughal"
-	repoName  = "vide"
-	apiURL    = "https://api.github.com/repos/" + repoOwner + "/" + repoName + "/releases/latest"
-	timeout   = 30 * time.Second
+	repoOwner   = "UmarMushtaqMughal"
+	repoName    = "vide"
+	releasesURL = "https://api.github.com/repos/" + repoOwner + "/" + repoName + "/releases"
+	timeout     = 30 * time.Second
 )
 
 // ReleaseInfo holds the parsed fields from a GitHub release.
 type ReleaseInfo struct {
-	TagName string  `json:"tag_name"`
-	Assets  []Asset `json:"assets"`
+	TagName    string  `json:"tag_name"`
+	Prerelease bool    `json:"prerelease"`
+	Draft      bool    `json:"draft"`
+	Assets     []Asset `json:"assets"`
 }
 
 // Asset represents a single downloadable file attached to a release.
@@ -54,7 +56,8 @@ type CheckResult struct {
 // CheckForUpdates queries the GitHub API and compares versions.
 func CheckForUpdates() (*CheckResult, error) {
 	client := &http.Client{Timeout: timeout}
-	req, err := http.NewRequest("GET", apiURL, nil)
+	// Use /releases (not /releases/latest) so pre-releases are included.
+	req, err := http.NewRequest("GET", releasesURL+"?per_page=10", nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -71,9 +74,21 @@ func CheckForUpdates() (*CheckResult, error) {
 		return nil, fmt.Errorf("GitHub API returned status %d", resp.StatusCode)
 	}
 
-	var release ReleaseInfo
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+	var releases []ReleaseInfo
+	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
 		return nil, fmt.Errorf("parsing release info: %w", err)
+	}
+
+	// Find the newest non-draft release (pre-releases are fine).
+	var release *ReleaseInfo
+	for i := range releases {
+		if !releases[i].Draft {
+			release = &releases[i]
+			break
+		}
+	}
+	if release == nil {
+		return nil, fmt.Errorf("no releases found on GitHub")
 	}
 
 	result := &CheckResult{
