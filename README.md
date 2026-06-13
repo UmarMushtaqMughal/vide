@@ -15,26 +15,29 @@ A lightweight, terminal-based Verilog/SystemVerilog development environment buil
 
 ## Requirements
 
-The following tools must be installed on your system:
-- **Go 1.20+** - Required to build the IDE from source
-- **Icarus Verilog (iverilog)** - For compilation, simulation, and live linting
+Vide is designed to be completely frictionless. On its first run, it will automatically download and isolate the required OSS CAD Suite toolchain (Icarus Verilog, Yosys) in the background.
+
+- **Go 1.20+** - Only required if building from source.
 
 ## Installation
 
-1. Clone the repository:
+The easiest way to use Vide is to download a pre-compiled binary. 
+
+1. Go to the [GitHub Releases page](https://github.com/UmarMushtaqMughal/vide/releases).
+2. Download the `.zip` (Windows) or `.tar.gz` (Linux/macOS) for your system architecture. Native Linux packages (`.deb`, `.rpm`, `.apk`) are also available.
+3. Extract the `vide` executable.
+4. (Optional) Add it to your system PATH:
+   - **Linux/macOS:** `sudo mv vide /usr/local/bin/`
+   - **Windows:** Move `vide.exe` to a directory included in your Environment Variables PATH.
+
+### Building from Source
+
+If you prefer to compile the IDE yourself:
+
 ```bash
 git clone https://github.com/UmarMushtaqMughal/vide.git
 cd vide
-```
-
-2. Build the executable:
-```bash
 go build -o vide main.go
-```
-
-3. (Optional) Add to PATH for easy access:
-```bash
-sudo ln -s $(pwd)/vide /usr/local/bin/vide
 ```
 
 ## Usage
