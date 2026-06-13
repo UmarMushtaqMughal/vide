@@ -11,7 +11,7 @@ import (
 var tbCmd = &cobra.Command{
 	Use:   "tb <file>",
 	Short: "Generate a testbench from a module's port declarations",
-	Long:  `Parses the module ports from the given Verilog/SystemVerilog file and generates a matching testbench with clock, reset, and dump directives.`,
+	Long:  `Parses the module ports from the given Verilog/SystemVerilog file and generates a matching testbench. Clock and reset blocks are only emitted when the module declares clock/reset signals.`,
 	Args:  cobra.ExactArgs(1),
 	Run:   runTB,
 }

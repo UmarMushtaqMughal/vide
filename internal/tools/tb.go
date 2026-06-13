@@ -56,32 +56,65 @@ func GenerateTB(target string) (string, error) {
 				wires = append(wires, fmt.Sprintf("wire %s;", p.Name))
 			}
 		}
-		signalDecls = strings.Join(regs, "\n    ") + "\n\n    " + strings.Join(wires, "\n    ")
+		// Only add the separator line when both groups are non-empty.
+		if len(regs) > 0 && len(wires) > 0 {
+			signalDecls = strings.Join(regs, "\n    ") + "\n\n    " + strings.Join(wires, "\n    ")
+		} else {
+			signalDecls = strings.Join(append(regs, wires...), "\n    ")
+		}
 	}
 
-	// Build instance port connections
-	allPorts := append(inputs, outputs...)
+	// Build instance port connections (use a safe copy to avoid slice aliasing).
+	allPorts := make([]parser.Port, len(inputs)+len(outputs))
+	copy(allPorts, inputs)
+	copy(allPorts[len(inputs):], outputs)
 	var portConns []string
 	for _, p := range allPorts {
 		portConns = append(portConns, fmt.Sprintf(".%s(%s)", p.Name, p.Name))
 	}
 	instancePorts := strings.Join(portConns, ",\n        ")
 
+	// Detect clock and reset signals
+	var clkName, rstName string
+	var hasClock, hasReset, rstActiveLow bool
+
+	for _, p := range inputs {
+		name := strings.ToLower(p.Name)
+		if !hasClock && (strings.Contains(name, "clk") || strings.Contains(name, "clock")) {
+			hasClock = true
+			clkName = p.Name
+		}
+		if !hasReset && (strings.Contains(name, "rst") || strings.Contains(name, "reset")) {
+			hasReset = true
+			rstName = p.Name
+			// Active-low convention: rst_n, nRst, n_rst, resetn, etc.
+			if strings.HasSuffix(name, "_n") || strings.HasSuffix(name, "n") ||
+				strings.HasPrefix(name, "n_") {
+				rstActiveLow = true
+			}
+		}
+	}
+
 	// Build input initializations (skip clk and rst_n)
 	var inits []string
 	for _, p := range inputs {
-		if p.Name != "clk" && p.Name != "rst_n" {
+		if p.Name != clkName && p.Name != rstName {
 			inits = append(inits, fmt.Sprintf("%s = 0;", p.Name))
 		}
 	}
 	initInputs := strings.Join(inits, "\n        ")
 
 	data := templates.TBTemplateData{
-		TBName:        tbName,
-		ModuleName:    moduleName,
-		SignalDecls:   signalDecls,
-		InstancePorts: instancePorts,
-		InitInputs:    initInputs,
+		TBName:         tbName,
+		ModuleName:     moduleName,
+		SignalDecls:    signalDecls,
+		InstancePorts:  instancePorts,
+		InitInputs:     initInputs,
+		HasClock:       hasClock,
+		ClockName:      clkName,
+		HasReset:       hasReset,
+		ResetName:      rstName,
+		ResetActiveLow: rstActiveLow,
 	}
 
 	result, err := templates.RenderTB(data)
