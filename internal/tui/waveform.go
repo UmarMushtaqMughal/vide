@@ -48,7 +48,6 @@ func NewWaveformView() WaveformView {
 	}
 }
 
-// SetData loads parsed VCD data into the waveform view.
 func (w *WaveformView) SetData(data *parser.VCDData) {
 	if data == nil {
 		return
@@ -66,6 +65,27 @@ func (w *WaveformView) SetData(data *parser.VCDData) {
 		w.zoom = int(w.endTime) / w.width
 		if w.zoom < 1 {
 			w.zoom = 1
+		}
+	}
+}
+
+// ApplyChunk merges a streamed VCD chunk into the waveform view.
+func (w *WaveformView) ApplyChunk(chunk parser.VCDChunk) {
+	if chunk.EndTime > w.endTime {
+		w.endTime = chunk.EndTime
+	}
+	for idx, waveUpdate := range chunk.Updates {
+		if idx < len(w.signals) {
+			w.signals[idx].Wave.Times = append(w.signals[idx].Wave.Times, waveUpdate.Times...)
+			w.signals[idx].Wave.Values = append(w.signals[idx].Wave.Values, waveUpdate.Values...)
+		}
+	}
+	
+	// Update zoom dynamically if we're still loading and haven't zoomed manually
+	if w.endTime > 0 && w.width > 0 {
+		newZoom := int(w.endTime) / w.width
+		if newZoom > w.zoom {
+			w.zoom = newZoom
 		}
 	}
 }
@@ -199,10 +219,12 @@ func (w *WaveformView) EdgeLeft() {
 	cursorTime := uint64(w.offset + w.waveCursor*w.zoom)
 	
 	var targetTime uint64 = 0
-	for i := len(sig.Changes) - 1; i >= 0; i-- {
-		if sig.Changes[i].Time < cursorTime {
-			targetTime = sig.Changes[i].Time
-			break
+	if sig.Wave != nil {
+		for i := len(sig.Wave.Times) - 1; i >= 0; i-- {
+			if sig.Wave.Times[i] < cursorTime {
+				targetTime = sig.Wave.Times[i]
+				break
+			}
 		}
 	}
 	w.snapToTime(targetTime)
@@ -217,10 +239,12 @@ func (w *WaveformView) EdgeRight() {
 	cursorTime := uint64(w.offset + w.waveCursor*w.zoom)
 	
 	var targetTime uint64 = w.endTime
-	for _, c := range sig.Changes {
-		if c.Time > cursorTime {
-			targetTime = c.Time
-			break
+	if sig.Wave != nil {
+		for _, t := range sig.Wave.Times {
+			if t > cursorTime {
+				targetTime = t
+				break
+			}
 		}
 	}
 	w.snapToTime(targetTime)
@@ -461,17 +485,12 @@ func (w WaveformView) renderBusTrace(sig parser.VCDSignal, traceWidth int, forma
 	return b.String()
 }
 
-// lookupValue returns the signal value at a given time by scanning its
-// change list. Returns the most recent value at or before t.
+// lookupValue finds the signal value at a given time using the sparse SignalWave structure.
 func lookupValue(sig parser.VCDSignal, t uint64) string {
-	val := "x"
-	for _, c := range sig.Changes {
-		if c.Time > t {
-			break
-		}
-		val = c.Value
+	if sig.Wave == nil {
+		return "x"
 	}
-	return val
+	return sig.Wave.ValueAt(t)
 }
 
 // busFormat converts a binary string value to the requested representation.

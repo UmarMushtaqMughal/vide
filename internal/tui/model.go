@@ -2,6 +2,7 @@ package tui
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -19,6 +20,14 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
+
+type pendingResize struct {
+	w, h int
+}
+
+type debouncedResizeMsg struct {
+	w, h int
+}
 
 // Model represents the state of the integrated terminal IDE.
 type Model struct {
@@ -51,6 +60,13 @@ type Model struct {
 	outputLog    string
 	outputScroll int
 
+	// Status line
+	statusMsg   string
+	statusStyle lipgloss.Style
+
+	// Resize state
+	pendingResize *pendingResize
+
 	// Waveform view
 	waveView WaveformView
 	vcdData  *parser.VCDData
@@ -59,9 +75,10 @@ type Model struct {
 	width  int
 	height int
 
-	// Status messages
-	statusMsg   string
-	statusStyle lipgloss.Style
+	// VCD Streaming
+	vcdParser *parser.VCDStreamParser
+	vcdCh     <-chan parser.VCDChunk
+	vcdCancel context.CancelFunc
 
 	// Command Palette
 	paletteInput   textinput.Model
@@ -207,20 +224,47 @@ func (m *Model) syncEditor() {
 	m.editor.SetContent(m.fileContents[current], current)
 }
 
-func (m *Model) loadWaveform() {
-	// First try the baseName-derived path for backwards compatibility.
+func (m *Model) loadWaveform() tea.Cmd {
+	// Cancel any ongoing parse
+	if m.vcdCancel != nil {
+		m.vcdCancel()
+	}
+
 	vcdPath := m.baseName + ".vcd"
 	if _, err := os.Stat(vcdPath); err != nil {
-		// Fallback: find the most recently modified .vcd file in the project dir.
 		vcdPath = parser.FindVCDFile(filepath.Dir(m.target))
 	}
 	if vcdPath == "" {
-		return
+		return nil
 	}
-	data, err := parser.ParseVCD(vcdPath)
+	
+	parserInst, err := parser.NewVCDStreamParser(vcdPath)
 	if err == nil {
-		m.vcdData = data
-		m.waveView.SetData(data)
+		m.vcdData = parserInst.Data
+		m.vcdParser = parserInst
+		m.waveView.SetData(parserInst.Data)
+		
+		ctx, cancel := context.WithCancel(context.Background())
+		m.vcdCancel = cancel
+		m.vcdCh = parserInst.Stream(ctx, 100000) // Parse 100k lines per chunk
+		
+		return consumeNextChunk(m.vcdCh)
+	}
+	return nil
+}
+
+type VCDChunkMsg struct {
+	Chunk parser.VCDChunk
+}
+type VCDDoneMsg struct{}
+
+func consumeNextChunk(ch <-chan parser.VCDChunk) tea.Cmd {
+	return func() tea.Msg {
+		chunk, ok := <-ch
+		if !ok {
+			return VCDDoneMsg{}
+		}
+		return VCDChunkMsg{Chunk: chunk}
 	}
 }
 
@@ -479,9 +523,17 @@ func (m *Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			m.bootstrapProg = pModel.(progress.Model)
 			return m, pCmd
 		case tea.WindowSizeMsg:
-			m.width = msg.Width
-			m.height = msg.Height
-			m.editor.SetSize(msg.Width-2, msg.Height-4)
+			m.pendingResize = &pendingResize{w: msg.Width, h: msg.Height}
+			return m, tea.Tick(40*time.Millisecond, func(time.Time) tea.Msg {
+				return debouncedResizeMsg{w: msg.Width, h: msg.Height}
+			})
+		case debouncedResizeMsg:
+			if m.pendingResize != nil && m.pendingResize.w == msg.w && m.pendingResize.h == msg.h {
+				m.width = msg.w
+				m.height = msg.h
+				m.editor.SetSize(msg.w-2, msg.h-4)
+				m.pendingResize = nil
+			}
 			return m, nil
 		}
 		return m, nil
@@ -919,20 +971,41 @@ func (m *Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		m.editor.SetErrors(msg.errors)
 
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-		m.updatePaneSizes()
+		m.pendingResize = &pendingResize{w: msg.Width, h: msg.Height}
+		return m, tea.Tick(40*time.Millisecond, func(time.Time) tea.Msg {
+			return debouncedResizeMsg{w: msg.Width, h: msg.Height}
+		})
+
+	case debouncedResizeMsg:
+		if m.pendingResize != nil && m.pendingResize.w == msg.w && m.pendingResize.h == msg.h {
+			m.width = msg.w
+			m.height = msg.h
+			m.updatePaneSizes()
+			m.pendingResize = nil
+		}
 
 	case simResultMsg:
 		m.outputLog = msg.output
 		if msg.err != nil {
 			m.statusMsg = "Simulation Failed"
 			m.statusStyle = StyleSimError
+			return m, nil
 		} else {
 			m.statusMsg = "Simulation Success"
 			m.statusStyle = StyleSimSuccess
-			m.loadWaveform()
+			return m, m.loadWaveform()
 		}
+
+	case VCDChunkMsg:
+		m.waveView.ApplyChunk(msg.Chunk)
+		if msg.Chunk.Err != nil && msg.Chunk.Err.Error() != "EOF" {
+			// Handled error
+		}
+		return m, consumeNextChunk(m.vcdCh)
+
+	case VCDDoneMsg:
+		// Done loading VCD
+		return m, nil
 		m.outputScroll = 0
 
 	case synthResultMsg:
