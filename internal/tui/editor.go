@@ -1,25 +1,26 @@
 package tui
 
 import (
-	"bytes"
 	"fmt"
 	"strings"
 	"unicode/utf8"
 
-	"github.com/alecthomas/chroma/v2/quick"
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
 type Editor struct {
-	textarea  textarea.Model
-	isEditing bool
-	filename  string
-	scrollY   int
-	width     int
-	height    int
-	lintErrs  []int
+	textarea      textarea.Model
+	isEditing     bool
+	filename      string
+	scrollY       int
+	width         int
+	height        int
+	lintErrs      []int
+	bufferVersion int
+	hlCache       *HighlightCache
+	bgHighlighter *BackgroundHighlighter
 }
 
 func NewEditor() Editor {
@@ -45,6 +46,13 @@ func NewEditor() Editor {
 func (e *Editor) SetContent(content string, filename string) {
 	e.filename = filename
 	e.textarea.SetValue(content)
+	e.bufferVersion++
+	e.hlCache.InvalidateAll()
+	e.bgHighlighter.Submit(HighlightJob{
+		BufferID: e.filename,
+		Version:  e.bufferVersion,
+		Content:  content,
+	})
 }
 
 func (e *Editor) GetContent() string {
@@ -82,6 +90,14 @@ func (e *Editor) Blur() {
 }
 
 func (e *Editor) Update(msg tea.Msg) (Editor, tea.Cmd) {
+	if hlMsg, ok := msg.(HighlightResult); ok {
+		if hlMsg.Version < e.bufferVersion {
+			return *e, e.bgHighlighter.WaitForResult()
+		}
+		e.hlCache.ReplaceAll(hlMsg.Lines)
+		return *e, nil
+	}
+
 	var cmd tea.Cmd
 	if !e.isEditing {
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
@@ -129,7 +145,20 @@ func (e *Editor) Update(msg tea.Msg) (Editor, tea.Cmd) {
 				e.textarea.InsertString("    ")
 			}
 		} else {
+			contentBefore := e.textarea.Value()
 			e.textarea, cmd = e.textarea.Update(msg)
+			contentAfter := e.textarea.Value()
+			
+			if contentBefore != contentAfter {
+				e.bufferVersion++
+				e.hlCache.InvalidateLine(e.textarea.Line())
+				e.bgHighlighter.Submit(HighlightJob{
+					BufferID: e.filename,
+					Version:  e.bufferVersion,
+					Content:  contentAfter,
+				})
+				cmd = tea.Batch(cmd, e.bgHighlighter.WaitForResult())
+			}
 		}
 		// Track cursor to update our custom scroll bounds
 		cursorLine := e.textarea.Line()
@@ -155,24 +184,11 @@ func (e *Editor) View() string {
 		cursorCol = e.textarea.LineInfo().CharOffset
 	}
 
-	var buf bytes.Buffer
-	err := quick.Highlight(&buf, content, "systemverilog", "terminal256", "monokai")
-	
-	highlighted := buf.String()
-	if err != nil || highlighted == "" {
-		highlighted = content
-	}
-	
-	// Add padding newline at end if content ends with newline, to render cursor on empty line
-	if strings.HasSuffix(content, "\n") || content == "" {
-		highlighted += "\n"
-	}
-
-	return renderCustomView(highlighted, e.width, e.height, e.scrollY, cursorLine, cursorCol, e.lintErrs)
+	return renderCustomView(e, content, e.width, e.height, e.scrollY, cursorLine, cursorCol, e.lintErrs)
 }
 
-func renderCustomView(highlighted string, width, height, scrollY, cursorLine, cursorCol int, lintErrs []int) string {
-	lines := strings.Split(highlighted, "\n")
+func renderCustomView(e *Editor, content string, width, height, scrollY, cursorLine, cursorCol int, lintErrs []int) string {
+	lines := strings.Split(content, "\n")
 	var visible []string
 	
 	start := scrollY
@@ -185,7 +201,8 @@ func renderCustomView(highlighted string, width, height, scrollY, cursorLine, cu
 	}
 
 	for i := start; i < end; i++ {
-		l := lines[i]
+		rawLine := lines[i]
+		l := e.hlCache.Get(i, rawLine)
 		
 		// If cursor is on this line, we inject an inverted style character
 		if i == cursorLine {

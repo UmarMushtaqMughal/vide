@@ -1,7 +1,18 @@
 // Package tui implements the Bubble Tea terminal UI for the Vide IDE.
 package tui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"os"
+
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/colorprofile"
+	"github.com/muesli/termenv"
+)
+
+func init() {
+	// Enable adaptive colors based on terminal profile (TrueColor -> 256 -> 16 -> ANSI)
+	lipgloss.SetColorProfile(termenv.Profile(colorprofile.Detect(os.Stdout, os.Environ())))
+}
 
 // PaneType identifies the four panes in the IDE layout.
 type PaneType int

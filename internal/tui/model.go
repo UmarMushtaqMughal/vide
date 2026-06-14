@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -438,6 +439,13 @@ func runSynthCmd(files []string, target string) tea.Cmd {
 
 // Update handles incoming messages and events.
 func (m *Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
+	// Always forward highlight results to the editor, regardless of active pane
+	if _, ok := teaMsg.(HighlightResult); ok {
+		var eCmd tea.Cmd
+		m.editor, eCmd = m.editor.Update(teaMsg)
+		return m, eCmd
+	}
+
 	var cmd tea.Cmd
 
 	if m.activePane == PaneBootstrap {
@@ -671,6 +679,20 @@ func (m *Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			m.editor.Blur()
 			m.statusMsg = ""
 
+		case "left", "h":
+			if m.activePane == PaneWaveform {
+				wCmd := m.waveView.ScrollLeft()
+				return m, wCmd
+			}
+			if m.activePane == PaneFiles {
+				// Add functionality to collapse directory if we had them
+			}
+		case "right", "l":
+			if m.activePane == PaneWaveform {
+				wCmd := m.waveView.ScrollRight()
+				return m, wCmd
+			}
+
 		case "g":
 			if m.activePane == PaneCode && m.editor.isEditing {
 				break
@@ -841,6 +863,21 @@ func (m *Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			
 			cmd = tea.Batch(cmd, eCmd, lintCmd)
 		}
+
+	case AnimationTickMsg:
+		newVel, newPos := m.waveView.spring.Update(m.waveView.velocity, m.waveView.currentOffset, m.waveView.targetOffset)
+		m.waveView.velocity = newVel
+		m.waveView.currentOffset = newPos
+		m.waveView.offset = int(newPos)
+		
+		// Snap threshold
+		if math.Abs(newPos-m.waveView.targetOffset) < 0.5 {
+			m.waveView.currentOffset = m.waveView.targetOffset
+			m.waveView.offset = int(m.waveView.targetOffset)
+			m.waveView.Animating = false
+			return m, nil
+		}
+		return m, m.waveView.TickAnimation()
 
 	case tea.MouseMsg:
 		if msg.Action == tea.MouseActionRelease && msg.Button == tea.MouseButtonLeft {

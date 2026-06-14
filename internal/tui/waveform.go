@@ -3,10 +3,15 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/UmarMushtaqMughal/vide/internal/parser"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/harmonica"
 	"github.com/charmbracelet/lipgloss"
 )
+
+type AnimationTickMsg struct{}
 
 // WaveformView renders parsed VCD signals as ASCII waveforms.
 type WaveformView struct {
@@ -22,6 +27,13 @@ type WaveformView struct {
 	timescale   string // the time unit from the VCD file
 	waveCursor  int // character offset of the time marker in the trace pane
 	traceWidth  int // cached trace width from last render
+
+	// Smooth scrolling physics
+	spring        harmonica.Spring
+	currentOffset float64
+	targetOffset  float64
+	velocity      float64
+	Animating     bool
 }
 
 // NewWaveformView returns a WaveformView with sensible defaults.
@@ -31,6 +43,8 @@ func NewWaveformView() WaveformView {
 		width:   80,
 		height:  10,
 		formats: make(map[string]string),
+		// 60fps, 6.0Hz frequency, 1.0 damping (critically damped)
+		spring:  harmonica.NewSpring(harmonica.FPS(60), 6.0, 1.0),
 	}
 }
 
@@ -43,6 +57,8 @@ func (w *WaveformView) SetData(data *parser.VCDData) {
 	w.endTime = data.EndTime
 	w.timescale = data.Timescale
 	w.offset = 0
+	w.currentOffset = 0
+	w.targetOffset = 0
 	w.scrollY = 0
 
 	// Auto-fit zoom so the full waveform is visible initially.
@@ -64,24 +80,35 @@ func (w *WaveformView) SetSize(width, height int) {
 	}
 }
 
+// TickAnimation returns a tea.Cmd to trigger the next animation frame.
+func (w *WaveformView) TickAnimation() tea.Cmd {
+	return tea.Tick(time.Second/60, func(time.Time) tea.Msg {
+		return AnimationTickMsg{}
+	})
+}
+
 // ScrollLeft pans the waveform view left by one zoom unit.
-func (w *WaveformView) ScrollLeft() {
-	w.offset -= w.zoom
-	if w.offset < 0 {
-		w.offset = 0
+func (w *WaveformView) ScrollLeft() tea.Cmd {
+	w.targetOffset -= float64(w.zoom)
+	if w.targetOffset < 0 {
+		w.targetOffset = 0
 	}
+	w.Animating = true
+	return w.TickAnimation()
 }
 
 // ScrollRight pans the waveform view right by one zoom unit.
-func (w *WaveformView) ScrollRight() {
-	w.offset += w.zoom
-	maxOffset := int(w.endTime) - w.width*w.zoom
+func (w *WaveformView) ScrollRight() tea.Cmd {
+	w.targetOffset += float64(w.zoom)
+	maxOffset := float64(int(w.endTime) - w.width*w.zoom)
 	if maxOffset < 0 {
 		maxOffset = 0
 	}
-	if w.offset > maxOffset {
-		w.offset = maxOffset
+	if w.targetOffset > maxOffset {
+		w.targetOffset = maxOffset
 	}
+	w.Animating = true
+	return w.TickAnimation()
 }
 
 // ZoomIn decreases the time units per column (minimum 1).
