@@ -207,13 +207,19 @@ func (m *Model) syncEditor() {
 }
 
 func (m *Model) loadWaveform() {
+	// First try the baseName-derived path for backwards compatibility.
 	vcdPath := m.baseName + ".vcd"
-	if _, err := os.Stat(vcdPath); err == nil {
-		data, err := parser.ParseVCD(vcdPath)
-		if err == nil {
-			m.vcdData = data
-			m.waveView.SetData(data)
-		}
+	if _, err := os.Stat(vcdPath); err != nil {
+		// Fallback: find the most recently modified .vcd file in the project dir.
+		vcdPath = parser.FindVCDFile(filepath.Dir(m.target))
+	}
+	if vcdPath == "" {
+		return
+	}
+	data, err := parser.ParseVCD(vcdPath)
+	if err == nil {
+		m.vcdData = data
+		m.waveView.SetData(data)
 	}
 }
 
@@ -386,12 +392,8 @@ func runSimCmd(files []string, target string) tea.Cmd {
 
 func runSynthCmd(files []string, target string) tea.Cmd {
 	return func() tea.Msg {
-		// Tools are guaranteed by bootstrap
-
-		_, topModule, _ := parser.GetSources(target) // Still need topModule name for synth
-		if topModule == "" {
-			topModule = strings.TrimSuffix(filepath.Base(target), filepath.Ext(target))
-		}
+		// Use the actual module name from the source file.
+		topModule := parser.ExtractModuleName(target)
 
 		hasSV := false
 		for _, f := range files {

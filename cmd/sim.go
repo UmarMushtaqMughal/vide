@@ -91,8 +91,8 @@ func RunSimulation(target string, silent bool) error {
 	}
 
 	// Check for VCD output
-	vcdFile := baseName + ".vcd"
-	if _, err := os.Stat(vcdFile); os.IsNotExist(err) {
+	vcdFile := parser.FindVCDFile(".")
+	if vcdFile == "" {
 		if !silent {
 			fmt.Println("⚠️  No VCD file generated. Ensure your testbench has $dumpfile/$dumpvars and $finish.")
 		}

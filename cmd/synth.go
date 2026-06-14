@@ -30,11 +30,14 @@ func runSynth(cmd *cobra.Command, args []string) {
 	}
 
 	target := args[0]
-	files, topModule, err := parser.GetSources(target)
+	files, _, err := parser.GetSources(target)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "❌ %v\n", err)
 		os.Exit(1)
 	}
+
+	// Use the actual module name from the source file, not the filename.
+	topModule := parser.ExtractModuleName(target)
 
 	hasSV := false
 	for _, f := range files {
