@@ -47,9 +47,11 @@ func NewEditor() Editor {
 	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
 
 	return Editor{
-		textarea:     ta,
-		isEditing:    false,
-		scrollSpring: harmonica.NewSpring(harmonica.FPS(60), 6.0, 1.0),
+		textarea:      ta,
+		isEditing:     false,
+		scrollSpring:  harmonica.NewSpring(harmonica.FPS(60), 6.0, 1.0),
+		hlCache:       NewHighlightCache(1000),
+		bgHighlighter: NewBackgroundHighlighter(),
 	}
 }
 
