@@ -150,4 +150,3 @@ func readFileList(path string) ([]string, error) {
 	}
 	return files, nil
 }
-

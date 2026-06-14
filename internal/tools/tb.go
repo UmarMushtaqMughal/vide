@@ -40,9 +40,9 @@ func hexDigits(n int) int {
 // stimulusForInput returns 3 representative Verilog literal assignments for a
 // multi-bit signal, choosing patterns that exercise typical corner-cases:
 //
-//	1.  0x55…5  (0101 alternating)
-//	2.  0xAA…A  (1010 alternating)
-//	3.  0xFF…F  (all ones)
+//  1. 0x55…5  (0101 alternating)
+//  2. 0xAA…A  (1010 alternating)
+//  3. 0xFF…F  (all ones)
 func stimulusForInput(name string, bits int) []string {
 	nibbles := hexDigits(bits)
 	val55 := strings.Repeat("5", nibbles)

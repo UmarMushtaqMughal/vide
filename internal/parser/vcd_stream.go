@@ -106,7 +106,7 @@ func (p *VCDStreamParser) parseHeader() error {
 			}
 			return err
 		}
-		
+
 		line := strings.TrimSpace(lineStr)
 		if line == "" {
 			continue

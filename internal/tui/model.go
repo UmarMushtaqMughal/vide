@@ -61,8 +61,8 @@ type Model struct {
 	outputScroll int
 
 	// Status line
-	statusMsg   string
-	statusStyle lipgloss.Style
+	statusBar      StatusBar
+	needsBootstrap bool
 
 	// Resize state
 	pendingResize *pendingResize
@@ -140,6 +140,7 @@ func NewModel(target string) *Model {
 		waveView:        NewWaveformView(),
 		fileInput:       ti,
 		paletteInput:    pi,
+		statusBar:       NewStatusBar(),
 		bootstrapProg:   progress.New(progress.WithDefaultGradient()),
 		bootstrapSpin:   spinner.New(spinner.WithSpinner(spinner.Dot)),
 	}
@@ -148,7 +149,7 @@ func NewModel(target string) *Model {
 
 	m.reloadFiles()
 	m.loadWorkspace()
-	
+
 	// Add initial target to tabs if tabs are empty (no workspace loaded)
 	if len(m.tabs) == 0 && len(files) > 0 {
 		m.tabs = append(m.tabs, files[0])
@@ -158,8 +159,8 @@ func NewModel(target string) *Model {
 	m.syncEditor()
 
 	if !tools.IsToolchainPresent() {
-		m.activePane = PaneBootstrap
-		m.bootstrapStatus = "Initializing Toolchain..."
+		m.needsBootstrap = true
+		m.statusBar.SetMessage("Downloading OSS CAD Suite...", 10*time.Second)
 	}
 	m.loadWaveform()
 
@@ -237,17 +238,17 @@ func (m *Model) loadWaveform() tea.Cmd {
 	if vcdPath == "" {
 		return nil
 	}
-	
+
 	parserInst, err := parser.NewVCDStreamParser(vcdPath)
 	if err == nil {
 		m.vcdData = parserInst.Data
 		m.vcdParser = parserInst
 		m.waveView.SetData(parserInst.Data)
-		
+
 		ctx, cancel := context.WithCancel(context.Background())
 		m.vcdCancel = cancel
 		m.vcdCh = parserInst.Stream(ctx, 100000) // Parse 100k lines per chunk
-		
+
 		return consumeNextChunk(m.vcdCh)
 	}
 	return nil
@@ -272,8 +273,8 @@ func consumeNextChunk(ch <-chan parser.VCDChunk) tea.Cmd {
 func (m *Model) Init() tea.Cmd {
 	var cmds []tea.Cmd
 	cmds = append(cmds, textinput.Blink)
-	if m.activePane == PaneBootstrap {
-		cmds = append(cmds, m.bootstrapSpin.Tick)
+	cmds = append(cmds, m.statusBar.spinner.Tick)
+	if m.needsBootstrap {
 		cmds = append(cmds, startBootstrapCmd())
 	}
 	return tea.Batch(cmds...)
@@ -336,7 +337,7 @@ func runLinterCmd(content, ext string) tea.Cmd {
 
 		cmd := exec.Command(tools.GetBinPath("iverilog"), "-t", "null", tmpfile.Name())
 		out, _ := cmd.CombinedOutput()
-		
+
 		var errLines []int
 		lines := strings.Split(string(out), "\n")
 		for _, l := range lines {
@@ -364,7 +365,7 @@ func runSimCmd(files []string, target string) tea.Cmd {
 		if !strings.HasSuffix(target, ".f") {
 			tbSV := baseName + "_tb.sv"
 			tbV := baseName + "_tb.v"
-			
+
 			addIfMissing := func(tb string) {
 				if _, err := os.Stat(tb); err == nil {
 					found := false
@@ -499,22 +500,28 @@ func (m *Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 		case spinner.TickMsg:
+			var cmds []tea.Cmd
+			if m.activePane == PaneBootstrap {
+				var cmd tea.Cmd
+				m.bootstrapSpin, cmd = m.bootstrapSpin.Update(msg)
+				cmds = append(cmds, cmd)
+			}
 			var sCmd tea.Cmd
-			m.bootstrapSpin, sCmd = m.bootstrapSpin.Update(msg)
-			return m, sCmd
+			m.statusBar.spinner, sCmd = m.statusBar.spinner.Update(msg)
+			if sCmd != nil {
+				cmds = append(cmds, sCmd)
+			}
+			return m, tea.Batch(cmds...)
 		case bootstrapProgressMsg:
 			if msg.Msg.Err != nil {
-				m.bootstrapStatus = "Error: " + msg.Msg.Err.Error()
+				m.statusBar.SetMessage("Download Error: "+msg.Msg.Err.Error(), 5*time.Second)
 				return m, nil
 			}
-			m.bootstrapStatus = msg.Msg.Status
-			var pCmd tea.Cmd
-			pCmd = m.bootstrapProg.SetPercent(msg.Msg.Percent)
-			return m, tea.Batch(pCmd, waitForProgress(msg.Ch))
+			m.statusBar.SetMessage(fmt.Sprintf("%s (%.0f%%)", msg.Msg.Status, msg.Msg.Percent*100), 10*time.Second)
+			return m, waitForProgress(msg.Ch)
 		case bootstrapCompleteMsg:
-			m.activePane = PaneFiles
-			m.statusMsg = "Toolchain installed successfully!"
-			m.statusStyle = StyleSimSuccess
+			m.needsBootstrap = false
+			m.statusBar.SetMessage("[OK] Toolchain installed successfully!", 5*time.Second)
 			return m, nil
 		case progress.FrameMsg:
 			var pModel tea.Model
@@ -522,6 +529,10 @@ func (m *Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			pModel, pCmd = m.bootstrapProg.Update(msg)
 			m.bootstrapProg = pModel.(progress.Model)
 			return m, pCmd
+		case EditorTickMsg:
+			var eCmd tea.Cmd
+			m.editor, eCmd = m.editor.Update(msg)
+			return m, eCmd
 		case tea.WindowSizeMsg:
 			m.pendingResize = &pendingResize{w: msg.Width, h: msg.Height}
 			return m, tea.Tick(40*time.Millisecond, func(time.Time) tea.Msg {
@@ -576,8 +587,8 @@ func (m *Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 					m.isPaletteOpen = false
 					m.paletteInput.Blur()
 					m.activePane = PaneCode
-					m.statusMsg = "Opened " + filepath.Base(fileToAdd)
-					m.statusStyle = StyleSimSuccess
+					m.statusBar.SetMessage("Opened "+filepath.Base(fileToAdd), 3*time.Second)
+
 					return m, nil
 				}
 			case "up", "ctrl+k":
@@ -634,7 +645,7 @@ func (m *Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			case "esc":
 				m.isPrompting = false
 				m.fileInput.Blur()
-				m.statusMsg = ""
+
 				return m, nil
 			case "enter":
 				val := m.fileInput.Value()
@@ -646,14 +657,14 @@ func (m *Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 					m.files = append(m.files, val)
 					m.reloadFiles()
 					m.activeFileIdx = len(m.files) - 1
-					
+
 					// Open it
 					m.tabs = append(m.tabs, val)
 					m.activeTabIdx = len(m.tabs) - 1
 					m.syncEditor()
 					m.activePane = PaneCode
-					m.statusMsg = "Created and opened " + val
-					m.statusStyle = StyleSimSuccess
+					m.statusBar.SetMessage("Created and opened "+val, 3*time.Second)
+
 				}
 				m.isPrompting = false
 				m.fileInput.Blur()
@@ -700,18 +711,17 @@ func (m *Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			// Toggle leftPaneMode
 			m.leftPaneMode = 1 - m.leftPaneMode
 			if m.leftPaneMode == 1 {
-				m.statusMsg = "Module Hierarchy View"
+				m.statusBar.SetMessage("Module Hierarchy View", 3*time.Second)
 			} else {
-				m.statusMsg = "File Explorer View"
+				m.statusBar.SetMessage("File Explorer View", 3*time.Second)
 			}
-			m.statusStyle = StyleSimSuccess
 
 		case "esc":
 			if m.activePane == PaneCode && m.editor.isEditing {
 				m.editor.Blur()
 				m.fileContents[m.getCurrentFile()] = m.editor.GetContent()
-				m.statusMsg = "Saved locally. Press 's' to simulate."
-				m.statusStyle = StyleSimSuccess
+				m.statusBar.SetMessage("Saved locally. Press 's' to simulate.", 3*time.Second)
+
 			}
 
 		case "tab":
@@ -721,7 +731,6 @@ func (m *Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.activePane = (m.activePane + 1) % 4
 			m.editor.Blur()
-			m.statusMsg = ""
 
 		case "shift+tab":
 			if m.activePane == PaneCode && m.editor.isEditing {
@@ -729,7 +738,6 @@ func (m *Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.activePane = (m.activePane + 3) % 4
 			m.editor.Blur()
-			m.statusMsg = ""
 
 		case "left", "h":
 			if m.activePane == PaneWaveform {
@@ -765,19 +773,19 @@ func (m *Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 						m.activeTabIdx = (m.activeTabIdx - 1 + len(m.tabs)) % len(m.tabs)
 					}
 					m.syncEditor()
-					m.statusMsg = "Switched tab"
-					m.statusStyle = StyleSimSuccess
+					m.statusBar.SetMessage("Switched tab", 3*time.Second)
+
 				}
 				m.lastKey = ""
 				break
 			}
-			
+
 			// Get the active file
 			activeFile := m.target
 			if len(m.tabs) > 0 {
 				activeFile = m.tabs[m.activeTabIdx]
 			}
-			
+
 			// Save active buffer before generating TB so the file on disk is fresh
 			if m.activePane == PaneCode && len(m.tabs) > 0 {
 				m.fileContents[activeFile] = m.editor.GetContent()
@@ -787,12 +795,11 @@ func (m *Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			// Generate TB for the active file
 			tbFile, err := tools.GenerateTB(activeFile)
 			if err != nil {
-				m.statusMsg = fmt.Sprintf("Error generating TB: %v", err)
-				m.statusStyle = StyleSimError
+				m.statusBar.SetMessage(fmt.Sprintf("Error generating TB: %v", err), 3*time.Second)
+
 			} else {
-				m.statusMsg = fmt.Sprintf("Generated %s", tbFile)
-				m.statusStyle = StyleSimSuccess
-				
+				m.statusBar.SetMessage(fmt.Sprintf("Generated %s", tbFile), 3*time.Second)
+
 				// Append new TB file to m.files if not present
 				found := false
 				for _, f := range m.files {
@@ -810,8 +817,8 @@ func (m *Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		case "i":
 			if m.activePane == PaneCode && !m.editor.isEditing {
 				m.editor.Focus()
-				m.statusMsg = "-- INSERT MODE --"
-				m.statusStyle = StyleSimRunning
+				m.statusBar.SetMessage("-- INSERT MODE --", 3*time.Second)
+
 				return m, nil
 			}
 
@@ -836,13 +843,13 @@ func (m *Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					m.syncEditor()
 					m.activePane = PaneCode
-					m.statusMsg = "Opened " + filepath.Base(fileToAdd)
-					m.statusStyle = StyleSimSuccess
+					m.statusBar.SetMessage("Opened "+filepath.Base(fileToAdd), 3*time.Second)
+
 				}
 			} else if m.activePane == PaneCode && !m.editor.isEditing {
 				m.editor.Focus()
-				m.statusMsg = "-- INSERT MODE --"
-				m.statusStyle = StyleSimRunning
+				m.statusBar.SetMessage("-- INSERT MODE --", 3*time.Second)
+
 				return m, nil
 			}
 
@@ -852,7 +859,6 @@ func (m *Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.isFullScreen = !m.isFullScreen
 			m.updatePaneSizes()
-			m.statusMsg = ""
 
 		case "s":
 			if m.activePane == PaneCode && m.editor.isEditing {
@@ -862,8 +868,8 @@ func (m *Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 				m.fileContents[m.tabs[m.activeTabIdx]] = m.editor.GetContent()
 				os.WriteFile(m.tabs[m.activeTabIdx], []byte(m.editor.GetContent()), 0644)
 			}
-			m.statusMsg = "Simulating..."
-			m.statusStyle = StyleSimRunning
+			m.statusBar.SetMessage("Simulating...", 3*time.Second)
+
 			m.reloadFiles()
 			return m, runSimCmd(m.files, m.target)
 
@@ -875,8 +881,8 @@ func (m *Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 				m.fileContents[m.tabs[m.activeTabIdx]] = m.editor.GetContent()
 				os.WriteFile(m.tabs[m.activeTabIdx], []byte(m.editor.GetContent()), 0644)
 			}
-			m.statusMsg = "Synthesizing..."
-			m.statusStyle = StyleSimRunning
+			m.statusBar.SetMessage("Synthesizing...", 3*time.Second)
+
 			m.reloadFiles()
 			return m, runSynthCmd(m.files, m.target)
 
@@ -885,8 +891,8 @@ func (m *Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 				m.isPrompting = true
 				m.fileInput.SetValue("")
 				m.fileInput.Focus()
-				m.statusMsg = "-- NEW FILE --"
-				m.statusStyle = StyleSimRunning
+				m.statusBar.SetMessage("-- NEW FILE --", 3*time.Second)
+
 				return m, textinput.Blink
 			}
 
@@ -901,18 +907,18 @@ func (m *Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.handleNavigation(msg.String())
 		}
-		
+
 		if m.activePane == PaneCode && m.editor.isEditing {
 			var eCmd tea.Cmd
 			m.editor, eCmd = m.editor.Update(msg)
-			
+
 			// Schedule lint
 			m.lintTimer++
 			currentTimer := m.lintTimer
 			lintCmd := tea.Tick(1*time.Second, func(t time.Time) tea.Msg {
 				return lintTickMsg(currentTimer)
 			})
-			
+
 			cmd = tea.Batch(cmd, eCmd, lintCmd)
 		}
 
@@ -921,7 +927,7 @@ func (m *Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		m.waveView.velocity = newVel
 		m.waveView.currentOffset = newPos
 		m.waveView.offset = int(newPos)
-		
+
 		// Snap threshold
 		if math.Abs(newPos-m.waveView.targetOffset) < 0.5 {
 			m.waveView.currentOffset = m.waveView.targetOffset
@@ -987,12 +993,12 @@ func (m *Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 	case simResultMsg:
 		m.outputLog = msg.output
 		if msg.err != nil {
-			m.statusMsg = "Simulation Failed"
-			m.statusStyle = StyleSimError
+			m.statusBar.SetMessage("Simulation Failed", 3*time.Second)
+
 			return m, nil
 		} else {
-			m.statusMsg = "Simulation Success"
-			m.statusStyle = StyleSimSuccess
+			m.statusBar.SetMessage("Simulation Success", 3*time.Second)
+
 			return m, m.loadWaveform()
 		}
 
@@ -1005,14 +1011,14 @@ func (m *Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case VCDDoneMsg:
 		// Done loading VCD
-		return m, nil
 		m.outputScroll = 0
+		return m, nil
 
 	case synthResultMsg:
 		if msg.err != nil {
 			m.outputLog = msg.output
-			m.statusMsg = "Synthesis Failed"
-			m.statusStyle = StyleSimError
+			m.statusBar.SetMessage("Synthesis Failed", 3*time.Second)
+
 		} else {
 			// Extract Yosys stats clean lines
 			var statLines []string
@@ -1030,8 +1036,8 @@ func (m *Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.outputLog = msg.output
 			}
-			m.statusMsg = "Synthesis Success"
-			m.statusStyle = StyleSimSuccess
+			m.statusBar.SetMessage("Synthesis Success", 3*time.Second)
+
 		}
 		m.outputScroll = 0
 	}
@@ -1152,7 +1158,7 @@ func (m *Model) updatePaneSizes() {
 
 	// Propagate size to waveform view
 	m.waveView.SetSize(ww-2, wh-2)
-	
+
 	// Propagate size to editor
 	m.editor.SetSize(cw-2, ch-4) // Subtract 2 more for the tab bar
 }
@@ -1187,13 +1193,13 @@ func (m *Model) View() string {
 			Width(60).
 			Align(lipgloss.Center).
 			Render(msg)
-		
+
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box, lipgloss.WithWhitespaceChars(" "))
 	}
 
 	if !m.isFullScreen || m.activePane == PaneFiles {
 		var fileListContent string
-		
+
 		if m.isPrompting {
 			fileListContent = "Create new file:\n\n" + m.fileInput.View()
 		} else if m.leftPaneMode == 0 {
@@ -1217,9 +1223,9 @@ func (m *Model) View() string {
 				instances := parser.ParseHierarchy(code)
 				if len(instances) > 0 {
 					base := filepath.Base(f)
-					hierarchyItems = append(hierarchyItems, StyleFileName.Render("▾ "+base))
+					hierarchyItems = append(hierarchyItems, StyleFileName.Render("v "+base))
 					for _, inst := range instances {
-						hierarchyItems = append(hierarchyItems, "  ├─ "+inst.InstanceName+" ("+inst.ModuleName+")")
+						hierarchyItems = append(hierarchyItems, "  |- "+inst.InstanceName+" ("+inst.ModuleName+")")
 					}
 				}
 			}
@@ -1228,7 +1234,7 @@ func (m *Model) View() string {
 			}
 			fileListContent = strings.Join(hierarchyItems, "\n")
 		}
-		
+
 		fw, fh := lw, th
 		if m.isFullScreen {
 			fw, fh = m.width, m.height-2
@@ -1247,23 +1253,14 @@ func (m *Model) View() string {
 		}
 
 		// Render Tab Bar
-		var tabStrs []string
-		for i, t := range m.tabs {
-			base := filepath.Base(t)
-			if i == m.activeTabIdx {
-				tabStrs = append(tabStrs, lipgloss.NewStyle().Background(lipgloss.Color("4")).Foreground(lipgloss.Color("0")).Padding(0, 1).Render(base))
-			} else {
-				tabStrs = append(tabStrs, lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Padding(0, 1).Render(base))
-			}
-		}
-		tabBar := lipgloss.JoinHorizontal(lipgloss.Top, tabStrs...)
-		if len(m.tabs) == 0 {
-			tabBar = "No open files"
+		tabBar := "No open files"
+		if len(m.tabs) > 0 {
+			tabBar = RenderTabBar(m.tabs, m.modifiedBuffers, m.activeTabIdx, cw-2)
 		}
 
 		codeContent := m.editor.View()
 		fullCodeView := lipgloss.JoinVertical(lipgloss.Left, tabBar, codeContent)
-		
+
 		codePane = getPaneStyle(m.activePane == PaneCode).
 			Width(cw - 2).
 			Height(ch - 2).
@@ -1334,21 +1331,29 @@ func (m *Model) View() string {
 		mainGrid = lipgloss.JoinVertical(lipgloss.Left, topRow, bottomRow)
 	}
 
-	// Status bar / help bar
-	status := " [Tab] Cycle Pane  [F] Fullscreen  [s] Sim  [y] Synth  [t] Gen TB  [ctrl+p] Palette  [q] Quit"
-	if m.activePane == PaneWaveform {
-		status += "  [←→] Scroll  [+/-] Zoom  [ / ] Edges"
+	// Prepare StatusBar state
+	m.statusBar.Mode = ModeNormal
+	if m.editor.isEditing {
+		m.statusBar.Mode = ModeInsert
+	} else if m.isPaletteOpen || m.isFormatPaletteOpen {
+		m.statusBar.Mode = ModeCommand
 	}
 
-	statusBarWidth := m.width
-	if m.statusMsg != "" {
-		renderedStatus := m.statusStyle.Render(" " + m.statusMsg + " ")
-		statusBarWidth -= lipgloss.Width(renderedStatus)
-		status = status + strings.Repeat(" ", statusBarWidth-lipgloss.Width(status)) + renderedStatus
+	if len(m.tabs) > 0 && m.activeTabIdx < len(m.tabs) {
+		m.statusBar.FilePath = m.tabs[m.activeTabIdx]
+		m.statusBar.Modified = m.modifiedBuffers[m.statusBar.FilePath]
 	} else {
-		status = status + strings.Repeat(" ", statusBarWidth-lipgloss.Width(status))
+		m.statusBar.FilePath = ""
+		m.statusBar.Modified = false
 	}
-	statusBar := StyleStatusBar.Render(status)
+
+	line, col, total := m.editor.LineInfo()
+	m.statusBar.CursorLine = line
+	m.statusBar.CursorCol = col
+	m.statusBar.TotalLines = total
+	m.statusBar.LintErrors = len(m.editor.lintErrs)
+
+	statusBar := m.statusBar.View(m.width)
 
 	mainView := lipgloss.JoinVertical(lipgloss.Left, header, mainGrid, statusBar)
 
@@ -1372,7 +1377,7 @@ func (m *Model) View() string {
 			BorderForeground(lipgloss.Color("62")).
 			Padding(1, 2).
 			Render(strings.Join(lines, "\n"))
-		
+
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, paletteBox, lipgloss.WithWhitespaceChars(" "))
 	}
 
@@ -1383,10 +1388,14 @@ func (m *Model) View() string {
 		for i, opt := range m.formatPaletteOpts {
 			label := ""
 			switch opt {
-			case "hex": label = "Hexadecimal"
-			case "bin": label = "Binary"
-			case "dec": label = "Decimal (Signed)"
-			case "udec": label = "Decimal (Unsigned)"
+			case "hex":
+				label = "Hexadecimal"
+			case "bin":
+				label = "Binary"
+			case "dec":
+				label = "Decimal (Signed)"
+			case "udec":
+				label = "Decimal (Unsigned)"
 			}
 			if i == m.formatPaletteSelIdx {
 				lines = append(lines, StyleActiveFile.Render("> "+label))
@@ -1399,7 +1408,7 @@ func (m *Model) View() string {
 			BorderForeground(lipgloss.Color("62")).
 			Padding(1, 2).
 			Render(strings.Join(lines, "\n"))
-		
+
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, paletteBox, lipgloss.WithWhitespaceChars(" "))
 	}
 

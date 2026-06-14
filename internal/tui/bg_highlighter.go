@@ -1,15 +1,15 @@
 package tui
 
 import (
+	"github.com/alecthomas/chroma/v2/formatters"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
-	"github.com/alecthomas/chroma/v2/formatters"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 type HighlightJob struct {
 	BufferID string
-	Version  int    // monotonic version; stale results are discarded
+	Version  int // monotonic version; stale results are discarded
 	Content  string
 }
 

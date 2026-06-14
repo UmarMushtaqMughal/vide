@@ -58,16 +58,16 @@ func GetBinPath(tool string) string {
 	if runtime.GOOS == "windows" {
 		ext = ".exe"
 	}
-	
+
 	localPath := filepath.Join(GetToolchainDir(), "bin", tool+ext)
 	if _, err := os.Stat(localPath); err == nil {
 		return localPath
 	}
-	
+
 	if sysPath, err := exec.LookPath(tool + ext); err == nil {
 		return sysPath
 	}
-	
+
 	return localPath
 }
 
@@ -116,7 +116,7 @@ func fetchLatestReleaseURL() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	
+
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", err
@@ -217,7 +217,7 @@ func DownloadAndExtract(ch chan<- ProgressMsg) {
 	ch <- ProgressMsg{Status: "Extracting (this may take a minute)...", Percent: 1.0}
 
 	targetDir := GetToolchainDir()
-	
+
 	// Create parent directory of targetDir since OSS CAD Suite creates 'oss-cad-suite' dir inside
 	parentDir := filepath.Dir(targetDir)
 	if err := os.MkdirAll(parentDir, 0755); err != nil {
@@ -305,8 +305,8 @@ func EnsureToolchain() error {
 		return nil
 	}
 
-	fmt.Println("📦 Toolchain not found. Downloading OSS CAD Suite...")
-	
+	fmt.Println("[PKG] Toolchain not found. Downloading OSS CAD Suite...")
+
 	ch := make(chan ProgressMsg)
 	go DownloadAndExtract(ch)
 
@@ -321,11 +321,11 @@ func EnsureToolchain() error {
 			lastPct = pct
 			barWidth := 40
 			filled := pct * barWidth / 100
-			bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
+			bar := strings.Repeat("#", filled) + strings.Repeat("-", barWidth-filled)
 			// \x1b[K clears to the end of the line
-			fmt.Printf("\r   ⬇  [%s] %3d%% | %s\x1b[K", bar, pct, msg.Status)
+			fmt.Printf("\r   [DOWNLOAD]  [%s] %3d%% | %s\x1b[K", bar, pct, msg.Status)
 		}
 	}
-	fmt.Println("\n✅ Toolchain installed successfully.")
+	fmt.Println("\n[OK] Toolchain installed successfully.")
 	return nil
 }

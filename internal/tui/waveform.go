@@ -15,18 +15,18 @@ type AnimationTickMsg struct{}
 
 // WaveformView renders parsed VCD signals as ASCII waveforms.
 type WaveformView struct {
-	signals []parser.VCDSignal
-	endTime uint64
-	offset  int // horizontal scroll position (time units)
-	zoom    int // time units per character column
-	width       int // available render width in characters
-	height      int // available render height in lines
-	scrollY     int // vertical scroll offset for many signals
-	selectedIdx int // currently selected signal index
+	signals     []parser.VCDSignal
+	endTime     uint64
+	offset      int               // horizontal scroll position (time units)
+	zoom        int               // time units per character column
+	width       int               // available render width in characters
+	height      int               // available render height in lines
+	scrollY     int               // vertical scroll offset for many signals
+	selectedIdx int               // currently selected signal index
 	formats     map[string]string // maps signal name to format: "hex", "bin", "udec", "dec"
-	timescale   string // the time unit from the VCD file
-	waveCursor  int // character offset of the time marker in the trace pane
-	traceWidth  int // cached trace width from last render
+	timescale   string            // the time unit from the VCD file
+	waveCursor  int               // character offset of the time marker in the trace pane
+	traceWidth  int               // cached trace width from last render
 
 	// Smooth scrolling physics
 	spring        harmonica.Spring
@@ -44,7 +44,7 @@ func NewWaveformView() WaveformView {
 		height:  10,
 		formats: make(map[string]string),
 		// 60fps, 6.0Hz frequency, 1.0 damping (critically damped)
-		spring:  harmonica.NewSpring(harmonica.FPS(60), 6.0, 1.0),
+		spring: harmonica.NewSpring(harmonica.FPS(60), 6.0, 1.0),
 	}
 }
 
@@ -80,7 +80,7 @@ func (w *WaveformView) ApplyChunk(chunk parser.VCDChunk) {
 			w.signals[idx].Wave.Values = append(w.signals[idx].Wave.Values, waveUpdate.Values...)
 		}
 	}
-	
+
 	// Update zoom dynamically if we're still loading and haven't zoomed manually
 	if w.endTime > 0 && w.width > 0 {
 		newZoom := int(w.endTime) / w.width
@@ -217,7 +217,7 @@ func (w *WaveformView) EdgeLeft() {
 	}
 	sig := w.signals[w.selectedIdx]
 	cursorTime := uint64(w.offset + w.waveCursor*w.zoom)
-	
+
 	var targetTime uint64 = 0
 	if sig.Wave != nil {
 		for i := len(sig.Wave.Times) - 1; i >= 0; i-- {
@@ -237,7 +237,7 @@ func (w *WaveformView) EdgeRight() {
 	}
 	sig := w.signals[w.selectedIdx]
 	cursorTime := uint64(w.offset + w.waveCursor*w.zoom)
-	
+
 	var targetTime uint64 = w.endTime
 	if sig.Wave != nil {
 		for _, t := range sig.Wave.Times {
@@ -324,14 +324,14 @@ func (w WaveformView) Render() string {
 	}
 
 	var lines []string
-	
+
 	// Add Time Ruler
 	rulerLabel := StyleWaveBus.Render(padRight("Time", nameWidth))
 	lines = append(lines, rulerLabel+w.renderRuler(traceWidth))
 
 	for i := start; i < end; i++ {
 		sig := w.signals[i]
-		
+
 		format := w.formats[sig.Name]
 		if format == "" {
 			format = "hex"
@@ -348,12 +348,12 @@ func (w WaveformView) Render() string {
 		} else {
 			nameDisp = "  " + nameDisp + " = " + valDisp
 		}
-		
+
 		label := StyleWaveBus.Render(padRight(nameDisp, nameWidth))
 		if i == w.selectedIdx {
 			label = StyleActiveFile.Render(padRight(nameDisp, nameWidth))
 		}
-		
+
 		trace := w.renderSignalTrace(sig, traceWidth, format)
 		lines = append(lines, label+trace)
 		lines = append(lines, "") // Space between traces
@@ -364,7 +364,7 @@ func (w WaveformView) Render() string {
 
 func (w WaveformView) renderRuler(traceWidth int) string {
 	var b strings.Builder
-	
+
 	// Strip the number from timescale if we just want the unit, but often Timescale is "1ps".
 	// We'll just display it directly: e.g. "10(1ps)" or we can just append it: "10ps".
 	unit := w.timescale
@@ -378,7 +378,7 @@ func (w WaveformView) renderRuler(traceWidth int) string {
 	for col := 0; col < traceWidth; col++ {
 		t := uint64(w.offset + col*w.zoom)
 		char := " "
-		
+
 		if col%10 == 0 {
 			ts := fmt.Sprintf("%d%s", t, unit)
 			if col+len(ts) <= traceWidth && col != w.waveCursor {
@@ -393,7 +393,7 @@ func (w WaveformView) renderRuler(traceWidth int) string {
 		}
 
 		if col == w.waveCursor {
-			b.WriteString(StyleActiveFile.Render("█"))
+			b.WriteString(StyleActiveFile.Render("#"))
 		} else if char != " " {
 			b.WriteString(StyleFileName.Render(char))
 		} else {
@@ -435,7 +435,7 @@ func (w WaveformView) render1BitTrace(sig parser.VCDSignal, traceWidth int) stri
 		if val == "1" || (val != prevVal && (val == "1" || prevVal == "1")) {
 			style = StyleWaveHigh
 		}
-		
+
 		if col == w.waveCursor {
 			style = style.Copy().Background(lipgloss.Color("236"))
 		}
@@ -498,7 +498,7 @@ func busFormat(val string, format string) string {
 	if len(val) <= 1 {
 		return val
 	}
-	
+
 	if format == "bin" {
 		return val
 	}
@@ -512,7 +512,7 @@ func busFormat(val string, format string) string {
 			return val // contains x/z, return as-is
 		}
 	}
-	
+
 	switch format {
 	case "dec":
 		// Assume signed? Let's just do signed based on highest bit if needed, but for now decimal:

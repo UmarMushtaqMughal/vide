@@ -15,7 +15,7 @@ var rootCmd = &cobra.Command{
 environment with auto-simulation, synthesis checking, an integrated
 waveform viewer, and a full terminal UI built with Bubble Tea.`,
 	Version: updater.Version,
-	Args: cobra.ArbitraryArgs,
+	Args:    cobra.ArbitraryArgs,
 	Run: func(cmd *cobra.Command, args []string) {
 		if len(args) == 1 {
 			// Redirect default 'vide <file>' to 'vide ide <file>'

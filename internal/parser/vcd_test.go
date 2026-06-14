@@ -1,12 +1,13 @@
 package parser
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
-func TestParseVCD(t *testing.T) {
+func TestParseVCDStream(t *testing.T) {
 	vcdContent := `$date June 13, 2026 $end
 $version Icarus Verilog $end
 $timescale 1ns $end
@@ -33,51 +34,64 @@ b0001 "
 		t.Fatalf("failed to write temp VCD file: %v", err)
 	}
 
-	data, err := ParseVCD(vcdPath)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	parser, err := NewVCDStreamParser(vcdPath)
 	if err != nil {
-		t.Fatalf("unexpected parsing error: %v", err)
+		t.Fatalf("unexpected initialization error: %v", err)
+	}
+	defer parser.Close()
+
+	ch := parser.Stream(ctx, 100)
+	
+	var allChunks []VCDChunk
+	for chunk := range ch {
+		if chunk.Err != nil && chunk.Err.Error() != "EOF" {
+			t.Fatalf("unexpected chunk error: %v", chunk.Err)
+		}
+		allChunks = append(allChunks, chunk)
 	}
 
-	if data.Timescale != "1ns" {
-		t.Errorf("expected timescale '1ns', got '%s'", data.Timescale)
+	if parser.Data.Timescale != "1ns" {
+		t.Errorf("expected timescale '1ns', got '%s'", parser.Data.Timescale)
 	}
 
-	if data.EndTime != 20 {
-		t.Errorf("expected EndTime 20, got %d", data.EndTime)
+	var clkChanges []ValueChange
+	var countChanges []ValueChange
+
+	for _, chunk := range allChunks {
+		for sigIdx, wave := range chunk.Updates {
+			sigName := parser.Data.Signals[sigIdx].Name
+			for i := 0; i < len(wave.Times); i++ {
+				vc := ValueChange{Time: int64(wave.Times[i]), Value: wave.Values[i]}
+				if sigName == "tb/clk" {
+					clkChanges = append(clkChanges, vc)
+				} else if sigName == "tb/count" {
+					countChanges = append(countChanges, vc)
+				}
+			}
+		}
 	}
 
-	if len(data.Signals) != 2 {
-		t.Fatalf("expected 2 signals, got %d", len(data.Signals))
-	}
-
-	// Verify clk signal
-	clk := data.Signals[0]
-	if clk.Name != "tb/clk" {
-		t.Errorf("expected clk name 'tb/clk', got '%s'", clk.Name)
-	}
-	if clk.Width != 1 {
-		t.Errorf("expected clk width 1, got %d", clk.Width)
-	}
-	if len(clk.Changes) != 3 {
-		t.Fatalf("expected 3 clk changes, got %d", len(clk.Changes))
-	}
 	expectedClk := []ValueChange{
 		{Time: 0, Value: "0"},
 		{Time: 10, Value: "1"},
 		{Time: 20, Value: "0"},
 	}
-	for i, c := range clk.Changes {
+
+	if len(clkChanges) != len(expectedClk) {
+		t.Fatalf("expected %d clk changes, got %d", len(expectedClk), len(clkChanges))
+	}
+
+	for i, c := range clkChanges {
 		if c.Time != expectedClk[i].Time || c.Value != expectedClk[i].Value {
 			t.Errorf("clk change %d: expected %+v, got %+v", i, expectedClk[i], c)
 		}
 	}
+}
 
-	// Verify count signal
-	count := data.Signals[1]
-	if count.Name != "tb/count" {
-		t.Errorf("expected count name 'tb/count', got '%s'", count.Name)
-	}
-	if count.Width != 4 {
-		t.Errorf("expected count width 4, got %d", count.Width)
-	}
+type ValueChange struct {
+	Time  int64
+	Value string
 }

@@ -27,7 +27,7 @@ func runWatch(cmd *cobra.Command, args []string) {
 
 	files, baseName, err := parser.GetSources(target)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "❌ %v\n", err)
+		fmt.Fprintf(os.Stderr, "[ERROR] %v\n", err)
 		os.Exit(1)
 	}
 
@@ -42,11 +42,11 @@ func runWatch(cmd *cobra.Command, args []string) {
 		}
 	}
 
-	fmt.Printf("👀 Watching %d files... (Ctrl+C to stop)\n", len(files))
+	fmt.Printf("[WATCH] Watching %d files... (Ctrl+C to stop)\n", len(files))
 
 	// Initial simulation
 	if err := RunSimulation(target, false); err != nil {
-		fmt.Fprintf(os.Stderr, "❌ %v\n", err)
+		fmt.Fprintf(os.Stderr, "[ERROR] %v\n", err)
 	}
 
 	// Seed mtimes with current values to avoid double-trigger
@@ -74,9 +74,9 @@ func runWatch(cmd *cobra.Command, args []string) {
 		}
 
 		if changed {
-			fmt.Println("\n🔄 Change detected. Re-simulating...")
+			fmt.Println("\n[RELOAD] Change detected. Re-simulating...")
 			if err := RunSimulation(target, false); err != nil {
-				fmt.Fprintf(os.Stderr, "❌ %v\n", err)
+				fmt.Fprintf(os.Stderr, "[ERROR] %v\n", err)
 			}
 		}
 	}

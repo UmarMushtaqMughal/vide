@@ -22,7 +22,7 @@ func init() {
 
 func runTB(cmd *cobra.Command, args []string) {
 	target := args[0]
-	
+
 	// Check for existing file manually if we want to prompt in CLI mode before overwriting
 	// Actually GenerateTB just overwrites, let's keep the prompt for CLI.
 	tbFile, err := tools.GenerateTB(target)
@@ -31,7 +31,7 @@ func runTB(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	// We removed the prompt logic from GenerateTB to make it re-usable. 
+	// We removed the prompt logic from GenerateTB to make it re-usable.
 	// If the user runs `tb` manually, they just overwrite. That's fine.
-	fmt.Printf("✅ Generated testbench: %s\n", tbFile)
+	fmt.Printf("[OK] Generated testbench: %s\n", tbFile)
 }

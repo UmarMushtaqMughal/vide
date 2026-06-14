@@ -71,7 +71,7 @@ func RunSimulation(target string, silent bool) error {
 	args = append(args, files...)
 
 	if !silent {
-		fmt.Printf("🔨 Compiling %d file(s)...\n", len(files))
+		fmt.Printf("[BUILD] Compiling %d file(s)...\n", len(files))
 	}
 	compileCmd := exec.Command(tools.GetBinPath("iverilog"), args...)
 	compileCmd.Stdout = os.Stdout
@@ -81,7 +81,7 @@ func RunSimulation(target string, silent bool) error {
 	}
 
 	if !silent {
-		fmt.Println("🚀 Running Simulation...")
+		fmt.Println("[EXEC] Running Simulation...")
 	}
 	simCmd := exec.Command(tools.GetBinPath("vvp"), outFile)
 	simCmd.Stdout = os.Stdout
@@ -94,7 +94,7 @@ func RunSimulation(target string, silent bool) error {
 	vcdFile := parser.FindVCDFile(".")
 	if vcdFile == "" {
 		if !silent {
-			fmt.Println("⚠️  No VCD file generated. Ensure your testbench has $dumpfile/$dumpvars and $finish.")
+			fmt.Println("[WARN]  No VCD file generated. Ensure your testbench has $dumpfile/$dumpvars and $finish.")
 		}
 	} else if !silent {
 		fmt.Printf("Simulation complete. VCD: %s\n", vcdFile)
@@ -106,7 +106,7 @@ func RunSimulation(target string, silent bool) error {
 
 func runSim(cmd *cobra.Command, args []string) {
 	if err := RunSimulation(args[0], false); err != nil {
-		fmt.Fprintf(os.Stderr, "❌ %v\n", err)
+		fmt.Fprintf(os.Stderr, "[ERROR] %v\n", err)
 		os.Exit(1)
 	}
 }

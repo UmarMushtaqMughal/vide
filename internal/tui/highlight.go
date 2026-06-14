@@ -28,7 +28,7 @@ func SafeHighlight(lexer chroma.Lexer, formatter chroma.Formatter, style *chroma
 	return buf.String(), nil
 }
 
-// HighlightWithLineFallback attempts whole-file highlighting. If it fails, 
+// HighlightWithLineFallback attempts whole-file highlighting. If it fails,
 // it falls back to highlighting each line independently.
 func HighlightWithLineFallback(content string, lexer chroma.Lexer, fmt chroma.Formatter, style *chroma.Style) []string {
 	result, err := SafeHighlight(lexer, fmt, style, content)

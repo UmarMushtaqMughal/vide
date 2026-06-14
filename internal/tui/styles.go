@@ -4,8 +4,8 @@ package tui
 import (
 	"os"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/colorprofile"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 )
 
@@ -18,11 +18,11 @@ func init() {
 type PaneType int
 
 const (
-	PaneFiles    PaneType = iota // File explorer pane
-	PaneCode                     // Editor pane
-	PaneTerminal                 // Output log pane
-	PaneWaveform                 // Waveform viewer pane
-	PaneBootstrap                // Loading/Downloading screen
+	PaneFiles     PaneType = iota // File explorer pane
+	PaneCode                      // Editor pane
+	PaneTerminal                  // Output log pane
+	PaneWaveform                  // Waveform viewer pane
+	PaneBootstrap                 // Loading/Downloading screen
 )
 
 // ---------------------------------------------------------------------------

@@ -25,14 +25,14 @@ func init() {
 
 func runSynth(cmd *cobra.Command, args []string) {
 	if err := tools.EnsureToolchain(); err != nil {
-		fmt.Fprintf(os.Stderr, "❌ %v\n", err)
+		fmt.Fprintf(os.Stderr, "[ERROR] %v\n", err)
 		os.Exit(1)
 	}
 
 	target := args[0]
 	files, _, err := parser.GetSources(target)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "❌ %v\n", err)
+		fmt.Fprintf(os.Stderr, "[ERROR] %v\n", err)
 		os.Exit(1)
 	}
 
@@ -52,7 +52,7 @@ func runSynth(cmd *cobra.Command, args []string) {
 		readCmd = "read_verilog -sv"
 	}
 
-	fmt.Printf("🔬 Synthesizing %s...\n", topModule)
+	fmt.Printf("[SYNTH] Synthesizing %s...\n", topModule)
 
 	var loadParts []string
 	for _, f := range files {
@@ -64,7 +64,7 @@ func runSynth(cmd *cobra.Command, args []string) {
 	yosysCmd := exec.Command(tools.GetBinPath("yosys"), "-p", yosysScript)
 	output, err := yosysCmd.CombinedOutput()
 	if err != nil {
-		fmt.Println("❌ SYNTHESIS FAILED")
+		fmt.Println("[ERROR] SYNTHESIS FAILED")
 		for _, line := range strings.Split(string(output), "\n") {
 			if strings.Contains(line, "ERROR") {
 				fmt.Printf("   %s\n", strings.TrimSpace(line))
@@ -73,7 +73,7 @@ func runSynth(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	fmt.Println("✅ SYNTHESIS SUCCESSFUL")
+	fmt.Println("[OK] SYNTHESIS SUCCESSFUL")
 	fmt.Println(strings.Repeat("─", 40))
 	for _, line := range strings.Split(string(output), "\n") {
 		trimmed := strings.TrimSpace(line)

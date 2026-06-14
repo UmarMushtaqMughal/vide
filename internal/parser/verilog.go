@@ -183,7 +183,7 @@ func ParseHierarchy(code string) []Instance {
 	// Or:      module_name instance_name (
 	// We avoid keywords like 'module', 'if', 'for', 'always', 'initial', etc.
 	instRe := regexp.MustCompile(`(?m)^\s*([a-zA-Z_]\w*)\s+(?:#\s*\([^)]*\)\s+)?([a-zA-Z_]\w*)\s*\(`)
-	
+
 	keywords := map[string]bool{
 		"module": true, "if": true, "for": true, "always": true, "initial": true,
 		"case": true, "while": true, "task": true, "function": true, "begin": true,
@@ -203,6 +203,6 @@ func ParseHierarchy(code string) []Instance {
 			})
 		}
 	}
-	
+
 	return instances
 }

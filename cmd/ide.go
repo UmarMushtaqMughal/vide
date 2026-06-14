@@ -17,10 +17,10 @@ var ideCmd = &cobra.Command{
 	Use:   "ide <file>",
 	Short: "Launch the integrated terminal IDE",
 	Long: `Opens a full-screen terminal IDE with four panes:
-  • File List    — navigate your source files
-  • Code Viewer  — read file contents
-  • Terminal     — simulation and synthesis output
-  • Waveform     — integrated VCD waveform viewer
+  - File List    — navigate your source files
+  - Code Viewer  — read file contents
+  - Terminal     — simulation and synthesis output
+  - Waveform     — integrated VCD waveform viewer
 
 Navigation:
   Tab/Shift+Tab  Switch between panes

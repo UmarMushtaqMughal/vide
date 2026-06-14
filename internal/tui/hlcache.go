@@ -48,21 +48,21 @@ func (c *HighlightCache) InvalidateAll() {
 func (c *HighlightCache) ReplaceAll(lines []string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	// Ensure capacity
 	if len(lines) > len(c.lines) {
 		newLines := make([]CachedLine, len(lines))
 		copy(newLines, c.lines)
 		c.lines = newLines
-		
+
 		newDirty := make([]bool, len(lines))
 		copy(newDirty, c.dirty)
 		c.dirty = newDirty
 	}
-	
+
 	for i, hl := range lines {
 		// Just store the highlighted result and clear dirty flag.
-		// We could compute hash of raw text here but the background 
+		// We could compute hash of raw text here but the background
 		// worker operates on the whole file at a specific version.
 		c.lines[i].highlighted = hl
 		c.dirty[i] = false

@@ -35,14 +35,14 @@ func init() {
 
 func runShow(cmd *cobra.Command, args []string) {
 	if err := tools.CheckTool("yosys"); err != nil {
-		fmt.Fprintf(os.Stderr, "❌ %v\n", err)
+		fmt.Fprintf(os.Stderr, "[ERROR] %v\n", err)
 		os.Exit(1)
 	}
 
 	target := args[0]
 	files, topModule, err := parser.GetSources(target)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "❌ %v\n", err)
+		fmt.Fprintf(os.Stderr, "[ERROR] %v\n", err)
 		os.Exit(1)
 	}
 
@@ -63,13 +63,13 @@ func runShow(cmd *cobra.Command, args []string) {
 
 	var algo string
 	if showHier {
-		fmt.Println("🧱 Generating Hierarchy View (Boxes)...")
+		fmt.Println("[HIERARCHY] Generating Hierarchy View (Boxes)...")
 		algo = fmt.Sprintf("hierarchy -check -top %s; proc", topModule)
 	} else if showPrep {
-		fmt.Println("🎨 Generating Abstract RTL Schematic...")
+		fmt.Println("[SCHEMATIC] Generating Abstract RTL Schematic...")
 		algo = fmt.Sprintf("prep -top %s", topModule)
 	} else {
-		fmt.Println("⚡ Generating Gate-Level Schematic (Flattened)...")
+		fmt.Println("[RTL] Generating Gate-Level Schematic (Flattened)...")
 		algo = fmt.Sprintf("synth -top %s", topModule)
 	}
 
@@ -84,7 +84,7 @@ func runShow(cmd *cobra.Command, args []string) {
 	yosysCmd.Stdout = os.Stdout
 	yosysCmd.Stderr = os.Stderr
 	if err := yosysCmd.Run(); err != nil {
-		fmt.Println("❌ Failed to generate schematic.")
+		fmt.Println("[ERROR] Failed to generate schematic.")
 		os.Exit(1)
 	}
 

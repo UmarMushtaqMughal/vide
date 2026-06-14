@@ -2,19 +2,28 @@ package tui
 
 import (
 	"fmt"
+	"math"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/harmonica"
 	"github.com/charmbracelet/lipgloss"
 )
 
 type Editor struct {
-	textarea      textarea.Model
-	isEditing     bool
-	filename      string
-	scrollY       int
+	textarea  textarea.Model
+	isEditing bool
+	filename  string
+
+	// Smooth scrolling state
+	targetScroll int
+	scrollFloat  float64
+	scrollVel    float64
+	scrollSpring harmonica.Spring
+
 	width         int
 	height        int
 	lintErrs      []int
@@ -30,16 +39,17 @@ func NewEditor() Editor {
 	ta.Prompt = "┃ "
 	ta.CharLimit = 0
 	ta.ShowLineNumbers = false // We render our own
-	ta.SetWidth(10000) // Prevent native wrapping
+	ta.SetWidth(10000)         // Prevent native wrapping
 	ta.SetHeight(10000)
 
 	// Remove default colors so Chroma can take over if we want,
 	// but we'll use Chroma mostly for the view mode.
 	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
-	
+
 	return Editor{
-		textarea: ta,
-		isEditing: false,
+		textarea:     ta,
+		isEditing:    false,
+		scrollSpring: harmonica.NewSpring(harmonica.FPS(60), 6.0, 1.0),
 	}
 }
 
@@ -63,12 +73,20 @@ func (e *Editor) SetErrors(errs []int) {
 	e.lintErrs = errs
 }
 
+func (e *Editor) LineInfo() (line, col, total int) {
+	line = e.textarea.Line()
+	info := e.textarea.LineInfo()
+	col = info.ColumnOffset
+	total = e.textarea.LineCount()
+	return line + 1, col + 1, total // 1-indexed
+}
+
 func getSnippet(word string) (string, bool) {
 	snippets := map[string]string{
-		"always": "always_ff @(posedge clk or negedge rst_n) begin\n    if (!rst_n) begin\n        \n    end else begin\n        \n    end\nend",
+		"always":  "always_ff @(posedge clk or negedge rst_n) begin\n    if (!rst_n) begin\n        \n    end else begin\n        \n    end\nend",
 		"alwaysc": "always_comb begin\n    \nend",
-		"module": "module name (\n    input logic clk,\n    input logic rst_n,\n    output logic out\n);\n    \nendmodule",
-		"logic": "logic [31:0] ",
+		"module":  "module name (\n    input logic clk,\n    input logic rst_n,\n    output logic out\n);\n    \nendmodule",
+		"logic":   "logic [31:0] ",
 	}
 	s, ok := snippets[word]
 	return s, ok
@@ -103,17 +121,20 @@ func (e *Editor) Update(msg tea.Msg) (Editor, tea.Cmd) {
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
 			switch keyMsg.String() {
 			case "up", "k":
-				if e.scrollY > 0 {
-					e.scrollY--
+				if e.targetScroll > 0 {
+					e.targetScroll--
 				}
 			case "down", "j":
 				lines := len(strings.Split(e.textarea.Value(), "\n"))
 				maxScroll := lines - e.height
-				if maxScroll < 0 { maxScroll = 0 }
-				if e.scrollY < maxScroll {
-					e.scrollY++
+				if maxScroll < 0 {
+					maxScroll = 0
+				}
+				if e.targetScroll < maxScroll {
+					e.targetScroll++
 				}
 			}
+			cmd = tea.Batch(cmd, EditorTick())
 		}
 	} else {
 		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "tab" {
@@ -132,7 +153,7 @@ func (e *Editor) Update(msg tea.Msg) (Editor, tea.Cmd) {
 					word = l[start:colIdx]
 				}
 			}
-			
+
 			if snippet, ok := getSnippet(word); ok {
 				for i := 0; i < len(word); i++ {
 					// Hacky way to simulate backspace if DeleteCharacterBackward is missing
@@ -148,7 +169,7 @@ func (e *Editor) Update(msg tea.Msg) (Editor, tea.Cmd) {
 			contentBefore := e.textarea.Value()
 			e.textarea, cmd = e.textarea.Update(msg)
 			contentAfter := e.textarea.Value()
-			
+
 			if contentBefore != contentAfter {
 				e.bufferVersion++
 				e.hlCache.InvalidateLine(e.textarea.Line())
@@ -162,13 +183,31 @@ func (e *Editor) Update(msg tea.Msg) (Editor, tea.Cmd) {
 		}
 		// Track cursor to update our custom scroll bounds
 		cursorLine := e.textarea.Line()
-		if cursorLine < e.scrollY {
-			e.scrollY = cursorLine
-		} else if cursorLine >= e.scrollY + e.height {
-			e.scrollY = cursorLine - e.height + 1
+		if cursorLine < e.targetScroll {
+			e.targetScroll = cursorLine
+			cmd = tea.Batch(cmd, EditorTick())
+		} else if cursorLine >= e.targetScroll+e.height {
+			e.targetScroll = cursorLine - e.height + 1
+			cmd = tea.Batch(cmd, EditorTick())
 		}
 	}
+
+	// Animation step
+	if math.Abs(float64(e.targetScroll)-e.scrollFloat) > 0.05 || math.Abs(e.scrollVel) > 0.05 {
+		e.scrollFloat, e.scrollVel = e.scrollSpring.Update(e.scrollFloat, e.scrollVel, float64(e.targetScroll))
+		cmd = tea.Batch(cmd, EditorTick())
+	} else {
+		e.scrollFloat = float64(e.targetScroll)
+		e.scrollVel = 0
+	}
+
 	return *e, cmd
+}
+
+type EditorTickMsg struct{}
+
+func EditorTick() tea.Cmd {
+	return tea.Tick(time.Second/60, func(t time.Time) tea.Msg { return EditorTickMsg{} })
 }
 
 func (e *Editor) View() string {
@@ -184,13 +223,13 @@ func (e *Editor) View() string {
 		cursorCol = e.textarea.LineInfo().CharOffset
 	}
 
-	return renderCustomView(e, content, e.width, e.height, e.scrollY, cursorLine, cursorCol, e.lintErrs)
+	return renderCustomView(e, content, e.width, e.height, int(math.Round(e.scrollFloat)), cursorLine, cursorCol, e.lintErrs)
 }
 
 func renderCustomView(e *Editor, content string, width, height, scrollY, cursorLine, cursorCol int, lintErrs []int) string {
 	lines := strings.Split(content, "\n")
 	var visible []string
-	
+
 	start := scrollY
 	end := start + height
 	if end > len(lines) {
@@ -203,7 +242,7 @@ func renderCustomView(e *Editor, content string, width, height, scrollY, cursorL
 	for i := start; i < end; i++ {
 		rawLine := lines[i]
 		l := e.hlCache.Get(i, rawLine)
-		
+
 		// If cursor is on this line, we inject an inverted style character
 		if i == cursorLine {
 			l = injectCursorANSI(l, cursorCol)
@@ -228,7 +267,7 @@ func renderCustomView(e *Editor, content string, width, height, scrollY, cursorL
 	return strings.Join(visible, "\n")
 }
 
-// injectCursorANSI intelligently inserts an ANSI invert code (\x1b[7m) at the precise 
+// injectCursorANSI intelligently inserts an ANSI invert code (\x1b[7m) at the precise
 // visual character index, bypassing ANSI color codes injected by Chroma.
 func injectCursorANSI(str string, cursorIdx int) string {
 	var inEscape bool
