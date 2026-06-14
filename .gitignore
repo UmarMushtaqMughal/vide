@@ -40,3 +40,7 @@ vide
 vide_go
 videe
 dist/
+
+# Stray user test files in repo root
+/*.sv
+/*.v
