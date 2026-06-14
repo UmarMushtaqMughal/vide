@@ -97,8 +97,8 @@ func RunSimulation(target string, silent bool) error {
 			fmt.Println("⚠️  No VCD file generated. Ensure your testbench has $dumpfile/$dumpvars and $finish.")
 		}
 	} else if !silent {
-		fmt.Printf("✅ Simulation complete. VCD: %s\n", vcdFile)
-		fmt.Println("💡 Use 'vide ide' for an integrated waveform viewer.")
+		fmt.Printf("Simulation complete. VCD: %s\n", vcdFile)
+		fmt.Println("Use 'vide ide' for an integrated waveform viewer.")
 	}
 
 	return nil
