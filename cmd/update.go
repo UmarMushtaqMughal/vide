@@ -17,11 +17,24 @@ var updateCmd = &cobra.Command{
 	Run:   runUpdate,
 }
 
+var rollback bool
+
 func init() {
 	rootCmd.AddCommand(updateCmd)
+	updateCmd.Flags().BoolVar(&rollback, "rollback", false, "Rollback to the previously installed version")
 }
 
 func runUpdate(cmd *cobra.Command, args []string) {
+	if rollback {
+		fmt.Println("[EXEC] Rolling back to the previous version...")
+		if err := updater.Rollback(); err != nil {
+			fmt.Fprintf(os.Stderr, "[ERROR] Rollback failed: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("[OK] Successfully rolled back! Please restart vide.")
+		return
+	}
+
 	fmt.Println("[SEARCH] Checking for latest updates from GitHub...")
 
 	result, err := updater.CheckForUpdates()

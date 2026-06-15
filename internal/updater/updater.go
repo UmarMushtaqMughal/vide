@@ -321,7 +321,7 @@ func swapBinary(oldPath, newPath string) error {
 	if err := os.Rename(newPath, oldPath); err != nil {
 		// Rollback: restore the backup.
 		os.Rename(backupPath, oldPath)
-		return fmt.Errorf("installing new binary: %w", err)
+		return fmt.Errorf("renaming new binary: %w", err)
 	}
 
 	// Step 3: Clean up the old backup (best-effort).
@@ -329,5 +329,43 @@ func swapBinary(oldPath, newPath string) error {
 	// it will be cleaned up on the next update.
 	os.Remove(backupPath)
 
+	return nil
+}
+
+// Rollback restores the previous version of the binary from the .old backup file.
+func Rollback() error {
+	execPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("determining executable path: %w", err)
+	}
+	execPath, err = filepath.EvalSymlinks(execPath)
+	if err != nil {
+		return fmt.Errorf("evaluating symlinks: %w", err)
+	}
+
+	backupPath := execPath + ".old"
+	if _, err := os.Stat(backupPath); os.IsNotExist(err) {
+		return fmt.Errorf("no backup found at %s. You can only rollback once.", backupPath)
+	}
+
+	if err := checkWritePermission(execPath); err != nil {
+		return err
+	}
+
+	brokenPath := execPath + ".broken"
+	os.Remove(brokenPath)
+
+	if err := os.Rename(execPath, brokenPath); err != nil {
+		return fmt.Errorf("moving current binary out of the way: %w", err)
+	}
+
+	if err := os.Rename(backupPath, execPath); err != nil {
+		// try to recover
+		os.Rename(brokenPath, execPath)
+		return fmt.Errorf("restoring backup binary: %w", err)
+	}
+
+	// Clean up broken binary
+	os.Remove(brokenPath)
 	return nil
 }
